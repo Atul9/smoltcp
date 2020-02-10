@@ -14,42 +14,39 @@ size for a buffer, allocate it, and let the networking stack use it.
 use core::marker::PhantomData;
 use time::Instant;
 
+#[cfg(all(
+    feature = "socket-icmp",
+    any(feature = "proto-ipv4", feature = "proto-ipv6")
+))]
+mod icmp;
 mod meta;
 #[cfg(feature = "socket-raw")]
 mod raw;
-#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
-mod icmp;
-#[cfg(feature = "socket-udp")]
-mod udp;
+mod ref_;
+mod set;
 #[cfg(feature = "socket-tcp")]
 mod tcp;
-mod set;
-mod ref_;
+#[cfg(feature = "socket-udp")]
+mod udp;
 
 pub(crate) use self::meta::Meta as SocketMeta;
 
 #[cfg(feature = "socket-raw")]
-pub use self::raw::{RawPacketMetadata,
-                    RawSocketBuffer,
-                    RawSocket};
+pub use self::raw::{RawPacketMetadata, RawSocket, RawSocketBuffer};
 
-#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
-pub use self::icmp::{IcmpPacketMetadata,
-                     IcmpSocketBuffer,
-                     Endpoint as IcmpEndpoint,
-                     IcmpSocket};
+#[cfg(all(
+    feature = "socket-icmp",
+    any(feature = "proto-ipv4", feature = "proto-ipv6")
+))]
+pub use self::icmp::{Endpoint as IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer};
 
 #[cfg(feature = "socket-udp")]
-pub use self::udp::{UdpPacketMetadata,
-                    UdpSocketBuffer,
-                    UdpSocket};
+pub use self::udp::{UdpPacketMetadata, UdpSocket, UdpSocketBuffer};
 
 #[cfg(feature = "socket-tcp")]
-pub use self::tcp::{SocketBuffer as TcpSocketBuffer,
-                    State as TcpState,
-                    TcpSocket};
+pub use self::tcp::{SocketBuffer as TcpSocketBuffer, State as TcpState, TcpSocket};
 
-pub use self::set::{Set as SocketSet, Item as SocketSetItem, Handle as SocketHandle};
+pub use self::set::{Handle as SocketHandle, Item as SocketSetItem, Set as SocketSet};
 pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
 
 pub use self::ref_::Ref as SocketRef;
@@ -90,14 +87,17 @@ impl PollAt {
 pub enum Socket<'a, 'b: 'a> {
     #[cfg(feature = "socket-raw")]
     Raw(RawSocket<'a, 'b>),
-    #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
+    #[cfg(all(
+        feature = "socket-icmp",
+        any(feature = "proto-ipv4", feature = "proto-ipv6")
+    ))]
     Icmp(IcmpSocket<'a, 'b>),
     #[cfg(feature = "socket-udp")]
     Udp(UdpSocket<'a, 'b>),
     #[cfg(feature = "socket-tcp")]
     Tcp(TcpSocket<'a>),
     #[doc(hidden)]
-    __Nonexhaustive(PhantomData<(&'a (), &'b ())>)
+    __Nonexhaustive(PhantomData<(&'a (), &'b ())>),
 }
 
 macro_rules! dispatch_socket {
@@ -150,27 +150,28 @@ impl<'a, 'b> SocketSession for Socket<'a, 'b> {
 
 /// A conversion trait for network sockets.
 pub trait AnySocket<'a, 'b>: SocketSession + Sized {
-    fn downcast<'c>(socket_ref: SocketRef<'c, Socket<'a, 'b>>) ->
-                   Option<SocketRef<'c, Self>>;
+    fn downcast<'c>(socket_ref: SocketRef<'c, Socket<'a, 'b>>) -> Option<SocketRef<'c, Self>>;
 }
 
 macro_rules! from_socket {
     ($socket:ty, $variant:ident) => {
         impl<'a, 'b> AnySocket<'a, 'b> for $socket {
-            fn downcast<'c>(ref_: SocketRef<'c, Socket<'a, 'b>>) ->
-                           Option<SocketRef<'c, Self>> {
+            fn downcast<'c>(ref_: SocketRef<'c, Socket<'a, 'b>>) -> Option<SocketRef<'c, Self>> {
                 match SocketRef::into_inner(ref_) {
                     &mut Socket::$variant(ref mut socket) => Some(SocketRef::new(socket)),
                     _ => None,
                 }
             }
         }
-    }
+    };
 }
 
 #[cfg(feature = "socket-raw")]
 from_socket!(RawSocket<'a, 'b>, Raw);
-#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
+#[cfg(all(
+    feature = "socket-icmp",
+    any(feature = "proto-ipv4", feature = "proto-ipv6")
+))]
 from_socket!(IcmpSocket<'a, 'b>, Icmp);
 #[cfg(feature = "socket-udp")]
 from_socket!(UdpSocket<'a, 'b>, Udp);

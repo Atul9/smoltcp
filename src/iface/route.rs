@@ -1,13 +1,13 @@
+use core::ops::Bound;
 use managed::ManagedMap;
 use time::Instant;
-use core::ops::Bound;
 
-use {Error, Result};
-use wire::{IpCidr, IpAddress};
+use wire::{IpAddress, IpCidr};
 #[cfg(feature = "proto-ipv4")]
 use wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
 use wire::{Ipv6Address, Ipv6Cidr};
+use {Error, Result};
 
 /// A prefix of addresses that should be routed via a router
 #[derive(Debug, Clone, Copy)]
@@ -69,7 +69,9 @@ impl<'a> Routes<'a> {
     /// Creates a routing tables. The backing storage is **not** cleared
     /// upon creation.
     pub fn new<T>(storage: T) -> Routes<'a>
-            where T: Into<ManagedMap<'a, IpCidr, Route>> {
+    where
+        T: Into<ManagedMap<'a, IpCidr, Route>>,
+    {
         let storage = storage.into();
         Routes { storage }
     }
@@ -88,7 +90,7 @@ impl<'a> Routes<'a> {
         let route = Route::new_ipv4_gateway(gateway);
         match self.storage.insert(cidr, route) {
             Ok(route) => Ok(route),
-            Err((_cidr, _route)) => Err(Error::Exhausted)
+            Err((_cidr, _route)) => Err(Error::Exhausted),
         }
     }
 
@@ -101,12 +103,11 @@ impl<'a> Routes<'a> {
         let route = Route::new_ipv6_gateway(gateway);
         match self.storage.insert(cidr, route) {
             Ok(route) => Ok(route),
-            Err((_cidr, _route)) => Err(Error::Exhausted)
+            Err((_cidr, _route)) => Err(Error::Exhausted),
         }
     }
 
-    pub(crate) fn lookup(&self, addr: &IpAddress, timestamp: Instant) ->
-            Option<IpAddress> {
+    pub(crate) fn lookup(&self, addr: &IpAddress, timestamp: Instant) -> Option<IpAddress> {
         assert!(addr.is_unicast());
 
         let cidr = match addr {
@@ -114,10 +115,14 @@ impl<'a> Routes<'a> {
             IpAddress::Ipv4(addr) => IpCidr::Ipv4(Ipv4Cidr::new(*addr, 32)),
             #[cfg(feature = "proto-ipv6")]
             IpAddress::Ipv6(addr) => IpCidr::Ipv6(Ipv6Cidr::new(*addr, 128)),
-            _ => unimplemented!()
+            _ => unimplemented!(),
         };
 
-        for (prefix, route) in self.storage.range((Bound::Unbounded, Bound::Included(cidr))).rev() {
+        for (prefix, route) in self
+            .storage
+            .range((Bound::Unbounded, Bound::Included(cidr)))
+            .rev()
+        {
             // TODO: do something with route.preferred_until
             if let Some(expires_at) = route.expires_at {
                 if timestamp > expires_at {
@@ -140,24 +145,28 @@ mod test {
     #[cfg(feature = "proto-ipv6")]
     mod mock {
         use super::super::*;
-        pub const ADDR_1A: Ipv6Address = Ipv6Address(
-                [0xfe, 0x80, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1]);
-        pub const ADDR_1B: Ipv6Address = Ipv6Address(
-                [0xfe, 0x80, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 13]);
-        pub const ADDR_1C: Ipv6Address = Ipv6Address(
-                [0xfe, 0x80, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 42]);
+        pub const ADDR_1A: Ipv6Address =
+            Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1]);
+        pub const ADDR_1B: Ipv6Address =
+            Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 13]);
+        pub const ADDR_1C: Ipv6Address =
+            Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 42]);
         pub fn cidr_1() -> Ipv6Cidr {
-            Ipv6Cidr::new(Ipv6Address(
-                    [0xfe, 0x80, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]), 64)
+            Ipv6Cidr::new(
+                Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]),
+                64,
+            )
         }
 
-        pub const ADDR_2A: Ipv6Address = Ipv6Address(
-                [0xfe, 0x80, 0, 0, 0, 0, 51, 100, 0, 0, 0, 0, 0, 0, 0, 1]);
-        pub const ADDR_2B: Ipv6Address = Ipv6Address(
-                [0xfe, 0x80, 0, 0, 0, 0, 51, 100, 0, 0, 0, 0, 0, 0, 0, 21]);
+        pub const ADDR_2A: Ipv6Address =
+            Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 51, 100, 0, 0, 0, 0, 0, 0, 0, 1]);
+        pub const ADDR_2B: Ipv6Address =
+            Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 51, 100, 0, 0, 0, 0, 0, 0, 0, 21]);
         pub fn cidr_2() -> Ipv6Cidr {
-            Ipv6Cidr::new(Ipv6Address(
-                    [0xfe, 0x80, 0, 0, 0, 0, 51, 100, 0, 0, 0, 0, 0, 0, 0, 0]), 64)
+            Ipv6Cidr::new(
+                Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 51, 100, 0, 0, 0, 0, 0, 0, 0, 0]),
+                64,
+            )
         }
     }
 
@@ -185,25 +194,56 @@ mod test {
         let mut routes_storage = [None, None, None];
         let mut routes = Routes::new(&mut routes_storage[..]);
 
-        assert_eq!(routes.lookup(&ADDR_1A.into(), Instant::from_millis(0)), None);
-        assert_eq!(routes.lookup(&ADDR_1B.into(), Instant::from_millis(0)), None);
-        assert_eq!(routes.lookup(&ADDR_1C.into(), Instant::from_millis(0)), None);
-        assert_eq!(routes.lookup(&ADDR_2A.into(), Instant::from_millis(0)), None);
-        assert_eq!(routes.lookup(&ADDR_2B.into(), Instant::from_millis(0)), None);
+        assert_eq!(
+            routes.lookup(&ADDR_1A.into(), Instant::from_millis(0)),
+            None
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_1B.into(), Instant::from_millis(0)),
+            None
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_1C.into(), Instant::from_millis(0)),
+            None
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_2A.into(), Instant::from_millis(0)),
+            None
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_2B.into(), Instant::from_millis(0)),
+            None
+        );
 
         let route = Route {
             via_router: ADDR_1A.into(),
-            preferred_until: None, expires_at: None,
+            preferred_until: None,
+            expires_at: None,
         };
         routes.update(|storage| {
             storage.insert(cidr_1().into(), route).unwrap();
         });
 
-        assert_eq!(routes.lookup(&ADDR_1A.into(), Instant::from_millis(0)), Some(ADDR_1A.into()));
-        assert_eq!(routes.lookup(&ADDR_1B.into(), Instant::from_millis(0)), Some(ADDR_1A.into()));
-        assert_eq!(routes.lookup(&ADDR_1C.into(), Instant::from_millis(0)), Some(ADDR_1A.into()));
-        assert_eq!(routes.lookup(&ADDR_2A.into(), Instant::from_millis(0)), None);
-        assert_eq!(routes.lookup(&ADDR_2B.into(), Instant::from_millis(0)), None);
+        assert_eq!(
+            routes.lookup(&ADDR_1A.into(), Instant::from_millis(0)),
+            Some(ADDR_1A.into())
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_1B.into(), Instant::from_millis(0)),
+            Some(ADDR_1A.into())
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_1C.into(), Instant::from_millis(0)),
+            Some(ADDR_1A.into())
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_2A.into(), Instant::from_millis(0)),
+            None
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_2B.into(), Instant::from_millis(0)),
+            None
+        );
 
         let route2 = Route {
             via_router: ADDR_2A.into(),
@@ -214,16 +254,46 @@ mod test {
             storage.insert(cidr_2().into(), route2).unwrap();
         });
 
-        assert_eq!(routes.lookup(&ADDR_1A.into(), Instant::from_millis(0)), Some(ADDR_1A.into()));
-        assert_eq!(routes.lookup(&ADDR_1B.into(), Instant::from_millis(0)), Some(ADDR_1A.into()));
-        assert_eq!(routes.lookup(&ADDR_1C.into(), Instant::from_millis(0)), Some(ADDR_1A.into()));
-        assert_eq!(routes.lookup(&ADDR_2A.into(), Instant::from_millis(0)), Some(ADDR_2A.into()));
-        assert_eq!(routes.lookup(&ADDR_2B.into(), Instant::from_millis(0)), Some(ADDR_2A.into()));
+        assert_eq!(
+            routes.lookup(&ADDR_1A.into(), Instant::from_millis(0)),
+            Some(ADDR_1A.into())
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_1B.into(), Instant::from_millis(0)),
+            Some(ADDR_1A.into())
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_1C.into(), Instant::from_millis(0)),
+            Some(ADDR_1A.into())
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_2A.into(), Instant::from_millis(0)),
+            Some(ADDR_2A.into())
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_2B.into(), Instant::from_millis(0)),
+            Some(ADDR_2A.into())
+        );
 
-        assert_eq!(routes.lookup(&ADDR_1A.into(), Instant::from_millis(10)), Some(ADDR_1A.into()));
-        assert_eq!(routes.lookup(&ADDR_1B.into(), Instant::from_millis(10)), Some(ADDR_1A.into()));
-        assert_eq!(routes.lookup(&ADDR_1C.into(), Instant::from_millis(10)), Some(ADDR_1A.into()));
-        assert_eq!(routes.lookup(&ADDR_2A.into(), Instant::from_millis(10)), Some(ADDR_2A.into()));
-        assert_eq!(routes.lookup(&ADDR_2B.into(), Instant::from_millis(10)), Some(ADDR_2A.into()));
+        assert_eq!(
+            routes.lookup(&ADDR_1A.into(), Instant::from_millis(10)),
+            Some(ADDR_1A.into())
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_1B.into(), Instant::from_millis(10)),
+            Some(ADDR_1A.into())
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_1C.into(), Instant::from_millis(10)),
+            Some(ADDR_1A.into())
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_2A.into(), Instant::from_millis(10)),
+            Some(ADDR_2A.into())
+        );
+        assert_eq!(
+            routes.lookup(&ADDR_2B.into(), Instant::from_millis(10)),
+            Some(ADDR_2A.into())
+        );
     }
 }

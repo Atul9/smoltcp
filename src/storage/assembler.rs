@@ -4,29 +4,44 @@ use core::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Contig {
     hole_size: usize,
-    data_size: usize
+    data_size: usize,
 }
 
 impl fmt::Display for Contig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.has_hole() { write!(f, "({})", self.hole_size)?; }
-        if self.has_hole() && self.has_data() { write!(f, " ")?; }
-        if self.has_data() { write!(f, "{}",   self.data_size)?; }
+        if self.has_hole() {
+            write!(f, "({})", self.hole_size)?;
+        }
+        if self.has_hole() && self.has_data() {
+            write!(f, " ")?;
+        }
+        if self.has_data() {
+            write!(f, "{}", self.data_size)?;
+        }
         Ok(())
     }
 }
 
 impl Contig {
     fn empty() -> Contig {
-        Contig { hole_size: 0, data_size: 0 }
+        Contig {
+            hole_size: 0,
+            data_size: 0,
+        }
     }
 
     fn hole(size: usize) -> Contig {
-        Contig { hole_size: size, data_size: 0 }
+        Contig {
+            hole_size: size,
+            data_size: 0,
+        }
     }
 
     fn hole_and_data(hole_size: usize, data_size: usize) -> Contig {
-        Contig { hole_size, data_size }
+        Contig {
+            hole_size,
+            data_size,
+        }
     }
 
     fn has_hole(&self) -> bool {
@@ -62,10 +77,10 @@ impl Contig {
     }
 }
 
-#[cfg(feature = "std")]
-use std::boxed::Box;
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 use alloc::boxed::Box;
+#[cfg(feature = "std")]
+use std::boxed::Box;
 #[cfg(any(feature = "std", feature = "alloc"))]
 const CONTIG_COUNT: usize = 32;
 
@@ -88,7 +103,9 @@ impl fmt::Display for Assembler {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[ ")?;
         for contig in self.contigs.iter() {
-            if contig.is_empty() { break }
+            if contig.is_empty() {
+                break;
+            }
             write!(f, "{} ", contig)?;
         }
         write!(f, "]")?;
@@ -110,10 +127,7 @@ impl Assembler {
     /// FIXME(whitequark): remove this once I'm certain enough that the assembler works well.
     #[allow(dead_code)]
     pub(crate) fn total_size(&self) -> usize {
-        self.contigs
-            .iter()
-            .map(|contig| contig.total_size())
-            .sum()
+        self.contigs.iter().map(|contig| contig.total_size()).sum()
     }
 
     fn front(&self) -> Contig {
@@ -138,7 +152,7 @@ impl Assembler {
             self.contigs[i] = self.contigs[i + 1];
             if !self.contigs[i].has_data() {
                 self.contigs[i + 1] = Contig::empty();
-                return &mut self.contigs[i]
+                return &mut self.contigs[i];
             }
         }
 
@@ -151,7 +165,9 @@ impl Assembler {
     fn add_contig_at(&mut self, at: usize) -> Result<&mut Contig, ()> {
         debug_assert!(!self.contigs[at].is_empty());
 
-        if !self.back().is_empty() { return Err(()) }
+        if !self.back().is_empty() {
+            return Err(());
+        }
 
         for i in (at + 1..self.contigs.len()).rev() {
             self.contigs[i] = self.contigs[i - 1];
@@ -196,11 +212,11 @@ impl Assembler {
                 // The range being added covers a part of the hole but not of the data
                 // in this contig, add a new contig containing the range.
                 {
-                  let inserted = self.add_contig_at(index)?;
-                  *inserted = Contig::hole_and_data(offset, size);
+                    let inserted = self.add_contig_at(index)?;
+                    *inserted = Contig::hole_and_data(offset, size);
                 }
                 // Previous contigs[index] got moved to contigs[index+1]
-                self.contigs[index+1].shrink_hole_by(offset + size);
+                self.contigs[index + 1].shrink_hole_by(offset + size);
                 index += 2;
             } else {
                 unreachable!()
@@ -210,7 +226,7 @@ impl Assembler {
             if offset >= contig.total_size() {
                 offset = offset.saturating_sub(contig.total_size());
             } else {
-                size   = (offset + size).saturating_sub(contig.total_size());
+                size = (offset + size).saturating_sub(contig.total_size());
                 offset = 0;
             }
         }
@@ -253,7 +269,7 @@ pub struct AssemblerIter<'a> {
     offset: usize,
     index: usize,
     left: usize,
-    right: usize
+    right: usize,
 }
 
 impl<'a> AssemblerIter<'a> {
@@ -263,7 +279,7 @@ impl<'a> AssemblerIter<'a> {
             offset: offset,
             index: 0,
             left: 0,
-            right: 0
+            right: 0,
         }
     }
 }
@@ -292,8 +308,8 @@ impl<'a> Iterator for AssemblerIter<'a> {
 
 #[cfg(test)]
 mod test {
-    use std::vec::Vec;
     use super::*;
+    use std::vec::Vec;
 
     impl From<Vec<(usize, usize)>> for Assembler {
         fn from(vec: Vec<(usize, usize)>) -> Assembler {
@@ -302,7 +318,10 @@ mod test {
             #[cfg(any(feature = "std", feature = "alloc"))]
             let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
             for (i, &(hole_size, data_size)) in vec.iter().enumerate() {
-                contigs[i] = Contig { hole_size, data_size };
+                contigs[i] = Contig {
+                    hole_size,
+                    data_size,
+                };
             }
             Assembler { contigs }
         }
@@ -407,9 +426,9 @@ mod test {
 
     #[test]
     fn test_rejected_add_keeps_state() {
-        let mut assr = Assembler::new(CONTIG_COUNT*20);
-        for c in 1..=CONTIG_COUNT-1 {
-          assert_eq!(assr.add(c*10, 3), Ok(()));
+        let mut assr = Assembler::new(CONTIG_COUNT * 20);
+        for c in 1..=CONTIG_COUNT - 1 {
+            assert_eq!(assr.add(c * 10, 3), Ok(()));
         }
         // Maximum of allowed holes is reached
         let assr_before = assr.clone();
@@ -435,7 +454,6 @@ mod test {
         let mut assr = contigs![(0, 4), (4, 4)];
         assert_eq!(assr.remove_front(), Some(4));
         assert_eq!(assr, contigs![(4, 4), (4, 0)]);
-
     }
 
     #[test]

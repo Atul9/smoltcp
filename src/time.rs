@@ -10,7 +10,7 @@ absolute and relative time.
 [Duration]: struct.Duration.html
 */
 
-use core::{ops, fmt};
+use core::{fmt, ops};
 
 /// A representation of an absolute time value.
 ///
@@ -29,12 +29,16 @@ pub struct Instant {
 impl Instant {
     /// Create a new `Instant` from a number of milliseconds.
     pub fn from_millis<T: Into<i64>>(millis: T) -> Instant {
-        Instant { millis: millis.into() }
+        Instant {
+            millis: millis.into(),
+        }
     }
 
     /// Create a new `Instant` from a number of seconds.
     pub fn from_secs<T: Into<i64>>(secs: T) -> Instant {
-        Instant { millis: secs.into() * 1000 }
+        Instant {
+            millis: secs.into() * 1000,
+        }
     }
 
     /// Create a new `Instant` from the current [std::time::SystemTime].
@@ -71,14 +75,17 @@ impl Instant {
 impl From<::std::time::Instant> for Instant {
     fn from(other: ::std::time::Instant) -> Instant {
         let elapsed = other.elapsed();
-        Instant::from_millis((elapsed.as_secs() * 1_000) as i64 + (elapsed.subsec_nanos() / 1_000_000) as i64)
+        Instant::from_millis(
+            (elapsed.as_secs() * 1_000) as i64 + (elapsed.subsec_nanos() / 1_000_000) as i64,
+        )
     }
 }
 
 #[cfg(feature = "std")]
 impl From<::std::time::SystemTime> for Instant {
     fn from(other: ::std::time::SystemTime) -> Instant {
-        let n = other.duration_since(::std::time::UNIX_EPOCH)
+        let n = other
+            .duration_since(::std::time::UNIX_EPOCH)
             .expect("start time must not be before the unix epoch");
         Self::from_millis(n.as_secs() as i64 * 1000 + (n.subsec_nanos() / 1000000) as i64)
     }
@@ -147,7 +154,9 @@ impl Duration {
 
     /// Create a new `Instant` from a number of seconds.
     pub fn from_secs(secs: u64) -> Duration {
-        Duration { millis: secs * 1000 }
+        Duration {
+            millis: secs * 1000,
+        }
     }
 
     /// The fractional number of milliseconds in this `Duration`.
@@ -191,14 +200,19 @@ impl ops::Sub<Duration> for Duration {
 
     fn sub(self, rhs: Duration) -> Duration {
         Duration::from_millis(
-            self.millis.checked_sub(rhs.total_millis()).expect("overflow when subtracting durations"))
+            self.millis
+                .checked_sub(rhs.total_millis())
+                .expect("overflow when subtracting durations"),
+        )
     }
 }
 
 impl ops::SubAssign<Duration> for Duration {
     fn sub_assign(&mut self, rhs: Duration) {
-        self.millis = self.millis.checked_sub(
-            rhs.total_millis()).expect("overflow when subtracting durations");
+        self.millis = self
+            .millis
+            .checked_sub(rhs.total_millis())
+            .expect("overflow when subtracting durations");
     }
 }
 
@@ -232,17 +246,13 @@ impl ops::DivAssign<u32> for Duration {
 
 impl From<::core::time::Duration> for Duration {
     fn from(other: ::core::time::Duration) -> Duration {
-        Duration::from_millis(
-            other.as_secs() * 1000 + (other.subsec_nanos() / 1_000_000) as u64
-        )
+        Duration::from_millis(other.as_secs() * 1000 + (other.subsec_nanos() / 1_000_000) as u64)
     }
 }
 
 impl Into<::core::time::Duration> for Duration {
     fn into(self) -> ::core::time::Duration {
-        ::core::time::Duration::from_millis(
-            self.total_millis()
-        )
+        ::core::time::Duration::from_millis(self.total_millis())
     }
 }
 
@@ -253,9 +263,15 @@ mod test {
     #[test]
     fn test_instant_ops() {
         // std::ops::Add
-        assert_eq!(Instant::from_millis(4) + Duration::from_millis(6), Instant::from_millis(10));
+        assert_eq!(
+            Instant::from_millis(4) + Duration::from_millis(6),
+            Instant::from_millis(10)
+        );
         // std::ops::Sub
-        assert_eq!(Instant::from_millis(7) - Duration::from_millis(5), Instant::from_millis(2));
+        assert_eq!(
+            Instant::from_millis(7) - Duration::from_millis(5),
+            Instant::from_millis(2)
+        );
     }
 
     #[test]
@@ -276,19 +292,30 @@ mod test {
     #[cfg(feature = "std")]
     fn test_instant_conversions() {
         let mut epoc: ::std::time::SystemTime = Instant::from_millis(0).into();
-        assert_eq!(Instant::from(::std::time::UNIX_EPOCH),
-                   Instant::from_millis(0));
+        assert_eq!(
+            Instant::from(::std::time::UNIX_EPOCH),
+            Instant::from_millis(0)
+        );
         assert_eq!(epoc, ::std::time::UNIX_EPOCH);
         epoc = Instant::from_millis(2085955200i64 * 1000).into();
-        assert_eq!(epoc, ::std::time::UNIX_EPOCH + ::std::time::Duration::from_secs(2085955200));
+        assert_eq!(
+            epoc,
+            ::std::time::UNIX_EPOCH + ::std::time::Duration::from_secs(2085955200)
+        );
     }
 
     #[test]
     fn test_duration_ops() {
         // std::ops::Add
-        assert_eq!(Duration::from_millis(40) + Duration::from_millis(2), Duration::from_millis(42));
+        assert_eq!(
+            Duration::from_millis(40) + Duration::from_millis(2),
+            Duration::from_millis(42)
+        );
         // std::ops::Sub
-        assert_eq!(Duration::from_millis(555) - Duration::from_millis(42), Duration::from_millis(513));
+        assert_eq!(
+            Duration::from_millis(555) - Duration::from_millis(42),
+            Duration::from_millis(513)
+        );
         // std::ops::Mul
         assert_eq!(Duration::from_millis(13) * 22, Duration::from_millis(286));
         // std::ops::Div

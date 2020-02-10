@@ -1,7 +1,13 @@
 #![cfg_attr(feature = "alloc", feature(alloc))]
 #![no_std]
 #![deny(unsafe_code)]
-#![cfg_attr(all(any(feature = "proto-ipv4", feature = "proto-ipv6"), feature = "ethernet"), deny(unused))]
+#![cfg_attr(
+    all(
+        any(feature = "proto-ipv4", feature = "proto-ipv6"),
+        feature = "ethernet"
+    ),
+    deny(unused)
+)]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
 //! to the levels of API abstraction. Only the highest layers would be used by a typical
@@ -87,7 +93,6 @@
                feature = "socket-udp",
                feature = "socket-tcp")))]
 compile_error!("at least one socket needs to be enabled"); */
-
 // FIXME(dlrobertson): clippy fails with this lint
 #![cfg_attr(feature = "cargo-clippy", allow(if_same_then_else))]
 
@@ -99,10 +104,10 @@ extern crate managed;
 #[cfg(any(test, feature = "std"))]
 #[macro_use]
 extern crate std;
-#[cfg(any(feature = "phy-raw_socket", feature = "phy-tap_interface"))]
-extern crate libc;
 #[cfg(feature = "alloc")]
 extern crate alloc;
+#[cfg(any(feature = "phy-raw_socket", feature = "phy-tap_interface"))]
+extern crate libc;
 #[cfg(feature = "log")]
 #[macro_use(trace, debug)]
 extern crate log;
@@ -113,14 +118,14 @@ use core::fmt;
 mod macros;
 mod parsers;
 
-pub mod storage;
-pub mod phy;
-pub mod wire;
-pub mod iface;
-pub mod socket;
-pub mod time;
 #[cfg(feature = "proto-dhcpv4")]
 pub mod dhcp;
+pub mod iface;
+pub mod phy;
+pub mod socket;
+pub mod storage;
+pub mod time;
+pub mod wire;
 
 /// The error type for the networking stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,7 +158,7 @@ pub enum Error {
     Dropped,
 
     #[doc(hidden)]
-    __Nonexhaustive
+    __Nonexhaustive,
 }
 
 /// The result type for the networking stack.
@@ -162,16 +167,16 @@ pub type Result<T> = core::result::Result<T, Error>;
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Error::Exhausted     => write!(f, "buffer space exhausted"),
-            &Error::Illegal       => write!(f, "illegal operation"),
+            &Error::Exhausted => write!(f, "buffer space exhausted"),
+            &Error::Illegal => write!(f, "illegal operation"),
             &Error::Unaddressable => write!(f, "unaddressable destination"),
-            &Error::Truncated     => write!(f, "truncated packet"),
-            &Error::Checksum      => write!(f, "checksum error"),
-            &Error::Unrecognized  => write!(f, "unrecognized packet"),
-            &Error::Fragmented    => write!(f, "fragmented packet"),
-            &Error::Malformed     => write!(f, "malformed packet"),
-            &Error::Dropped       => write!(f, "dropped by socket"),
-            &Error::__Nonexhaustive => unreachable!()
+            &Error::Truncated => write!(f, "truncated packet"),
+            &Error::Checksum => write!(f, "checksum error"),
+            &Error::Unrecognized => write!(f, "unrecognized packet"),
+            &Error::Fragmented => write!(f, "fragmented packet"),
+            &Error::Malformed => write!(f, "malformed packet"),
+            &Error::Dropped => write!(f, "dropped by socket"),
+            &Error::__Nonexhaustive => unreachable!(),
         }
     }
 }

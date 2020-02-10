@@ -5,27 +5,27 @@
 use std as core;
 #[macro_use]
 extern crate log;
-extern crate smoltcp;
 #[cfg(feature = "std")]
 extern crate env_logger;
 #[cfg(feature = "std")]
 extern crate getopts;
+extern crate smoltcp;
 
 #[cfg(feature = "std")]
 #[allow(dead_code)]
 mod utils;
 
 use core::str;
+use smoltcp::iface::{EthernetInterfaceBuilder, NeighborCache};
 use smoltcp::phy::Loopback;
-use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
-use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
 use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
 use smoltcp::time::{Duration, Instant};
+use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 
 #[cfg(not(feature = "std"))]
 mod mock {
-    use smoltcp::time::{Duration, Instant};
     use core::cell::Cell;
+    use smoltcp::time::{Duration, Instant};
 
     #[derive(Debug)]
     pub struct Clock(Cell<Instant>);
@@ -47,9 +47,9 @@ mod mock {
 
 #[cfg(feature = "std")]
 mod mock {
+    use smoltcp::time::{Duration, Instant};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-    use std::sync::atomic::{Ordering, AtomicUsize};
-	use smoltcp::time::{Duration, Instant};
 
     // should be AtomicU64 but that's unstable
     #[derive(Debug, Clone)]
@@ -61,7 +61,8 @@ mod mock {
         }
 
         pub fn advance(&self, duration: Duration) {
-            self.0.fetch_add(duration.total_millis() as usize, Ordering::SeqCst);
+            self.0
+                .fetch_add(duration.total_millis() as usize, Ordering::SeqCst);
         }
 
         pub fn elapsed(&self) -> Instant {
@@ -83,7 +84,7 @@ fn main() {
         utils::add_middleware_options(&mut opts, &mut free);
 
         let mut matches = utils::parse_options(&opts, free);
-        let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/true);
+        let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ true);
 
         device
     };
@@ -93,10 +94,10 @@ fn main() {
 
     let mut ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
     let mut iface = EthernetInterfaceBuilder::new(device)
-            .ethernet_addr(EthernetAddress::default())
-            .neighbor_cache(neighbor_cache)
-            .ip_addrs(ip_addrs)
-            .finalize();
+        .ethernet_addr(EthernetAddress::default())
+        .neighbor_cache(neighbor_cache)
+        .ip_addrs(ip_addrs)
+        .finalize();
 
     let server_socket = {
         // It is not strictly necessary to use a `static mut` and unsafe code here, but
@@ -123,12 +124,12 @@ fn main() {
     let server_handle = socket_set.add(server_socket);
     let client_handle = socket_set.add(client_socket);
 
-    let mut did_listen  = false;
+    let mut did_listen = false;
     let mut did_connect = false;
     let mut done = false;
     while !done && clock.elapsed() < Instant::from_millis(10_000) {
         match iface.poll(&mut socket_set, clock.elapsed()) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
             }
@@ -145,9 +146,10 @@ fn main() {
             }
 
             if socket.can_recv() {
-                debug!("got {:?}", socket.recv(|buffer| {
-                    (buffer.len(), str::from_utf8(buffer).unwrap())
-                }));
+                debug!(
+                    "got {:?}",
+                    socket.recv(|buffer| { (buffer.len(), str::from_utf8(buffer).unwrap()) })
+                );
                 socket.close();
                 done = true;
             }
@@ -158,8 +160,12 @@ fn main() {
             if !socket.is_open() {
                 if !did_connect {
                     debug!("connecting");
-                    socket.connect((IpAddress::v4(127, 0, 0, 1), 1234),
-                                   (IpAddress::Unspecified, 65000)).unwrap();
+                    socket
+                        .connect(
+                            (IpAddress::v4(127, 0, 0, 1), 1234),
+                            (IpAddress::Unspecified, 65000),
+                        )
+                        .unwrap();
                     did_connect = true;
                 }
             }
@@ -176,8 +182,8 @@ fn main() {
             Some(delay) => {
                 debug!("sleeping for {} ms", delay);
                 clock.advance(delay)
-            },
-            None => clock.advance(Duration::from_millis(1))
+            }
+            None => clock.advance(Duration::from_millis(1)),
         }
     }
 

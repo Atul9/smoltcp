@@ -1,5 +1,5 @@
-use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
+use core::fmt;
 
 use {Error, Result};
 
@@ -23,7 +23,7 @@ enum_with_unknown! {
 /// A read/write wrapper around an Address Resolution Protocol packet buffer.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Packet<T: AsRef<[u8]>> {
-    buffer: T
+    buffer: T,
 }
 
 mod field {
@@ -33,9 +33,9 @@ mod field {
 
     pub const HTYPE: Field = 0..2;
     pub const PTYPE: Field = 2..4;
-    pub const HLEN:  usize = 4;
-    pub const PLEN:  usize = 5;
-    pub const OPER:  Field = 6..8;
+    pub const HLEN: usize = 4;
+    pub const PLEN: usize = 5;
+    pub const OPER: Field = 6..8;
 
     #[inline]
     pub fn SHA(hardware_len: u8, _protocol_len: u8) -> Field {
@@ -259,32 +259,30 @@ pub enum Repr {
         source_hardware_addr: EthernetAddress,
         source_protocol_addr: Ipv4Address,
         target_hardware_addr: EthernetAddress,
-        target_protocol_addr: Ipv4Address
+        target_protocol_addr: Ipv4Address,
     },
     #[doc(hidden)]
-    __Nonexhaustive
+    __Nonexhaustive,
 }
 
 impl Repr {
     /// Parse an Address Resolution Protocol packet and return a high-level representation,
     /// or return `Err(Error::Unrecognized)` if the packet is not recognized.
     pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr> {
-        match (packet.hardware_type(), packet.protocol_type(),
-               packet.hardware_len(), packet.protocol_len()) {
-            (Hardware::Ethernet, Protocol::Ipv4, 6, 4) => {
-                Ok(Repr::EthernetIpv4 {
-                    operation: packet.operation(),
-                    source_hardware_addr:
-                        EthernetAddress::from_bytes(packet.source_hardware_addr()),
-                    source_protocol_addr:
-                        Ipv4Address::from_bytes(packet.source_protocol_addr()),
-                    target_hardware_addr:
-                        EthernetAddress::from_bytes(packet.target_hardware_addr()),
-                    target_protocol_addr:
-                        Ipv4Address::from_bytes(packet.target_protocol_addr())
-                })
-            },
-            _ => Err(Error::Unrecognized)
+        match (
+            packet.hardware_type(),
+            packet.protocol_type(),
+            packet.hardware_len(),
+            packet.protocol_len(),
+        ) {
+            (Hardware::Ethernet, Protocol::Ipv4, 6, 4) => Ok(Repr::EthernetIpv4 {
+                operation: packet.operation(),
+                source_hardware_addr: EthernetAddress::from_bytes(packet.source_hardware_addr()),
+                source_protocol_addr: Ipv4Address::from_bytes(packet.source_protocol_addr()),
+                target_hardware_addr: EthernetAddress::from_bytes(packet.target_hardware_addr()),
+                target_protocol_addr: Ipv4Address::from_bytes(packet.target_protocol_addr()),
+            }),
+            _ => Err(Error::Unrecognized),
         }
     }
 
@@ -292,7 +290,7 @@ impl Repr {
     pub fn buffer_len(&self) -> usize {
         match self {
             &Repr::EthernetIpv4 { .. } => field::TPA(6, 4).end,
-            &Repr::__Nonexhaustive => unreachable!()
+            &Repr::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -301,8 +299,10 @@ impl Repr {
         match self {
             &Repr::EthernetIpv4 {
                 operation,
-                source_hardware_addr, source_protocol_addr,
-                target_hardware_addr, target_protocol_addr
+                source_hardware_addr,
+                source_protocol_addr,
+                target_hardware_addr,
+                target_protocol_addr,
             } => {
                 packet.set_hardware_type(Hardware::Ethernet);
                 packet.set_protocol_type(Protocol::Ipv4);
@@ -313,8 +313,8 @@ impl Repr {
                 packet.set_source_protocol_addr(source_protocol_addr.as_bytes());
                 packet.set_target_hardware_addr(target_hardware_addr.as_bytes());
                 packet.set_target_protocol_addr(target_protocol_addr.as_bytes());
-            },
-            &Repr::__Nonexhaustive => unreachable!()
+            }
+            &Repr::__Nonexhaustive => unreachable!(),
         }
     }
 }
@@ -325,13 +325,23 @@ impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
             Ok(repr) => write!(f, "{}", repr),
             _ => {
                 write!(f, "ARP (unrecognized)")?;
-                write!(f, " htype={:?} ptype={:?} hlen={:?} plen={:?} op={:?}",
-                       self.hardware_type(), self.protocol_type(),
-                       self.hardware_len(), self.protocol_len(),
-                       self.operation())?;
-                write!(f, " sha={:?} spa={:?} tha={:?} tpa={:?}",
-                       self.source_hardware_addr(), self.source_protocol_addr(),
-                       self.target_hardware_addr(), self.target_protocol_addr())?;
+                write!(
+                    f,
+                    " htype={:?} ptype={:?} hlen={:?} plen={:?} op={:?}",
+                    self.hardware_type(),
+                    self.protocol_type(),
+                    self.hardware_len(),
+                    self.protocol_len(),
+                    self.operation()
+                )?;
+                write!(
+                    f,
+                    " sha={:?} spa={:?} tha={:?} tpa={:?}",
+                    self.source_hardware_addr(),
+                    self.source_protocol_addr(),
+                    self.target_hardware_addr(),
+                    self.target_protocol_addr()
+                )?;
                 Ok(())
             }
         }
@@ -343,27 +353,35 @@ impl fmt::Display for Repr {
         match self {
             &Repr::EthernetIpv4 {
                 operation,
-                source_hardware_addr, source_protocol_addr,
-                target_hardware_addr, target_protocol_addr
-            } => {
-                write!(f, "ARP type=Ethernet+IPv4 src={}/{} tgt={}/{} op={:?}",
-                       source_hardware_addr, source_protocol_addr,
-                       target_hardware_addr, target_protocol_addr,
-                       operation)
-            },
-            &Repr::__Nonexhaustive => unreachable!()
+                source_hardware_addr,
+                source_protocol_addr,
+                target_hardware_addr,
+                target_protocol_addr,
+            } => write!(
+                f,
+                "ARP type=Ethernet+IPv4 src={}/{} tgt={}/{} op={:?}",
+                source_hardware_addr,
+                source_protocol_addr,
+                target_hardware_addr,
+                target_protocol_addr,
+                operation
+            ),
+            &Repr::__Nonexhaustive => unreachable!(),
         }
     }
 }
 
-use super::pretty_print::{PrettyPrint, PrettyIndent};
+use super::pretty_print::{PrettyIndent, PrettyPrint};
 
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
-    fn pretty_print(buffer: &dyn AsRef<[u8]>, f: &mut fmt::Formatter,
-                    indent: &mut PrettyIndent) -> fmt::Result {
+    fn pretty_print(
+        buffer: &dyn AsRef<[u8]>,
+        f: &mut fmt::Formatter,
+        indent: &mut PrettyIndent,
+    ) -> fmt::Result {
         match Packet::new_checked(buffer) {
             Err(err) => write!(f, "{}({})", indent, err),
-            Ok(packet) => write!(f, "{}{}", indent, packet)
+            Ok(packet) => write!(f, "{}{}", indent, packet),
         }
     }
 }
@@ -372,16 +390,10 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
 mod test {
     use super::*;
 
-    static PACKET_BYTES: [u8; 28] =
-        [0x00, 0x01,
-         0x08, 0x00,
-         0x06,
-         0x04,
-         0x00, 0x01,
-         0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
-         0x21, 0x22, 0x23, 0x24,
-         0x31, 0x32, 0x33, 0x34, 0x35, 0x36,
-         0x41, 0x42, 0x43, 0x44];
+    static PACKET_BYTES: [u8; 28] = [
+        0x00, 0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x01, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x21,
+        0x22, 0x23, 0x24, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x41, 0x42, 0x43, 0x44,
+    ];
 
     #[test]
     fn test_deconstruct() {
@@ -391,9 +403,15 @@ mod test {
         assert_eq!(packet.hardware_len(), 6);
         assert_eq!(packet.protocol_len(), 4);
         assert_eq!(packet.operation(), Operation::Request);
-        assert_eq!(packet.source_hardware_addr(), &[0x11, 0x12, 0x13, 0x14, 0x15, 0x16]);
+        assert_eq!(
+            packet.source_hardware_addr(),
+            &[0x11, 0x12, 0x13, 0x14, 0x15, 0x16]
+        );
         assert_eq!(packet.source_protocol_addr(), &[0x21, 0x22, 0x23, 0x24]);
-        assert_eq!(packet.target_hardware_addr(), &[0x31, 0x32, 0x33, 0x34, 0x35, 0x36]);
+        assert_eq!(
+            packet.target_hardware_addr(),
+            &[0x31, 0x32, 0x33, 0x34, 0x35, 0x36]
+        );
         assert_eq!(packet.target_protocol_addr(), &[0x41, 0x42, 0x43, 0x44]);
     }
 
@@ -416,14 +434,14 @@ mod test {
     fn packet_repr() -> Repr {
         Repr::EthernetIpv4 {
             operation: Operation::Request,
-            source_hardware_addr:
-                EthernetAddress::from_bytes(&[0x11, 0x12, 0x13, 0x14, 0x15, 0x16]),
-            source_protocol_addr:
-                Ipv4Address::from_bytes(&[0x21, 0x22, 0x23, 0x24]),
-            target_hardware_addr:
-                EthernetAddress::from_bytes(&[0x31, 0x32, 0x33, 0x34, 0x35, 0x36]),
-            target_protocol_addr:
-                Ipv4Address::from_bytes(&[0x41, 0x42, 0x43, 0x44])
+            source_hardware_addr: EthernetAddress::from_bytes(&[
+                0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+            ]),
+            source_protocol_addr: Ipv4Address::from_bytes(&[0x21, 0x22, 0x23, 0x24]),
+            target_hardware_addr: EthernetAddress::from_bytes(&[
+                0x31, 0x32, 0x33, 0x34, 0x35, 0x36,
+            ]),
+            target_protocol_addr: Ipv4Address::from_bytes(&[0x41, 0x42, 0x43, 0x44]),
         }
     }
 

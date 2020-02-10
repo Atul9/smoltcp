@@ -1,16 +1,16 @@
 use core::cmp;
 
-use {Error, Result};
 use phy::{ChecksumCapabilities, DeviceCapabilities};
-use socket::{Socket, SocketMeta, SocketHandle, PollAt};
+use socket::{PollAt, Socket, SocketHandle, SocketMeta};
 use storage::{PacketBuffer, PacketMetadata};
 use wire::{IpAddress, IpEndpoint, IpProtocol, IpRepr};
+use {Error, Result};
 
-#[cfg(feature = "proto-ipv4")]
-use wire::{Ipv4Address, Ipv4Repr, Icmpv4Packet, Icmpv4Repr};
-#[cfg(feature = "proto-ipv6")]
-use wire::{Ipv6Address, Ipv6Repr, Icmpv6Packet, Icmpv6Repr};
 use wire::IcmpRepr;
+#[cfg(feature = "proto-ipv4")]
+use wire::{Icmpv4Packet, Icmpv4Repr, Ipv4Address, Ipv4Repr};
+#[cfg(feature = "proto-ipv6")]
+use wire::{Icmpv6Packet, Icmpv6Repr, Ipv6Address, Ipv6Repr};
 use wire::{UdpPacket, UdpRepr};
 
 /// Type of endpoint to bind the ICMP socket to. See [IcmpSocket::bind] for
@@ -21,7 +21,7 @@ use wire::{UdpPacket, UdpRepr};
 pub enum Endpoint {
     Unspecified,
     Ident(u16),
-    Udp(IpEndpoint)
+    Udp(IpEndpoint),
 }
 
 impl Endpoint {
@@ -29,13 +29,15 @@ impl Endpoint {
         match *self {
             Endpoint::Ident(_) => true,
             Endpoint::Udp(endpoint) => endpoint.port != 0,
-            Endpoint::Unspecified => false
+            Endpoint::Unspecified => false,
         }
     }
 }
 
 impl Default for Endpoint {
-    fn default() -> Endpoint { Endpoint::Unspecified }
+    fn default() -> Endpoint {
+        Endpoint::Unspecified
+    }
 }
 
 /// An ICMP packet metadata.
@@ -59,21 +61,23 @@ pub struct IcmpSocket<'a, 'b: 'a> {
     rx_buffer: IcmpSocketBuffer<'a, 'b>,
     tx_buffer: IcmpSocketBuffer<'a, 'b>,
     /// The endpoint this socket is communicating with
-    endpoint:  Endpoint,
+    endpoint: Endpoint,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
-    hop_limit: Option<u8>
+    hop_limit: Option<u8>,
 }
 
 impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// Create an ICMP socket with the given buffers.
-    pub fn new(rx_buffer: IcmpSocketBuffer<'a, 'b>,
-               tx_buffer: IcmpSocketBuffer<'a, 'b>) -> IcmpSocket<'a, 'b> {
+    pub fn new(
+        rx_buffer: IcmpSocketBuffer<'a, 'b>,
+        tx_buffer: IcmpSocketBuffer<'a, 'b>,
+    ) -> IcmpSocket<'a, 'b> {
         IcmpSocket {
-            meta:      SocketMeta::default(),
+            meta: SocketMeta::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
-            endpoint:  Endpoint::default(),
-            hop_limit: None
+            endpoint: Endpoint::default(),
+            hop_limit: None,
         }
     }
 
@@ -171,7 +175,9 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
             return Err(Error::Unaddressable);
         }
 
-        if self.is_open() { return Err(Error::Illegal) }
+        if self.is_open() {
+            return Err(Error::Illegal);
+        }
 
         self.endpoint = endpoint;
         Ok(())
@@ -227,13 +233,17 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// size, and `Err(Error::Unaddressable)` if the remote address is unspecified.
     pub fn send(&mut self, size: usize, endpoint: IpAddress) -> Result<&mut [u8]> {
         if endpoint.is_unspecified() {
-            return Err(Error::Unaddressable)
+            return Err(Error::Unaddressable);
         }
 
         let packet_buf = self.tx_buffer.enqueue(size, endpoint)?;
 
-        net_trace!("{}:{}: buffer to send {} octets",
-                   self.meta.handle, endpoint, size);
+        net_trace!(
+            "{}:{}: buffer to send {} octets",
+            self.meta.handle,
+            endpoint,
+            size
+        );
         Ok(packet_buf)
     }
 
@@ -253,8 +263,12 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     pub fn recv(&mut self) -> Result<(&[u8], IpAddress)> {
         let (endpoint, packet_buf) = self.rx_buffer.dequeue()?;
 
-        net_trace!("{}:{}: receive {} buffered octets",
-                   self.meta.handle, endpoint, packet_buf.len());
+        net_trace!(
+            "{}:{}: receive {} buffered octets",
+            self.meta.handle,
+            endpoint,
+            packet_buf.len()
+        );
         Ok((packet_buf, endpoint))
     }
 
@@ -271,15 +285,21 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
 
     /// Filter determining which packets received by the interface are appended to
     /// the given sockets received buffer.
-    pub(crate) fn accepts(&self, ip_repr: &IpRepr, icmp_repr: &IcmpRepr,
-                          cksum: &ChecksumCapabilities) -> bool {
+    pub(crate) fn accepts(
+        &self,
+        ip_repr: &IpRepr,
+        icmp_repr: &IcmpRepr,
+        cksum: &ChecksumCapabilities,
+    ) -> bool {
         match (&self.endpoint, icmp_repr) {
             // If we are bound to ICMP errors associated to a UDP port, only
             // accept Destination Unreachable messages with the data containing
             // a UDP packet send from the local port we are bound to.
             #[cfg(feature = "proto-ipv4")]
-            (&Endpoint::Udp(endpoint), &IcmpRepr::Ipv4(Icmpv4Repr::DstUnreachable { data, .. }))
-                    if endpoint.addr.is_unspecified() || endpoint.addr == ip_repr.dst_addr() => {
+            (
+                &Endpoint::Udp(endpoint),
+                &IcmpRepr::Ipv4(Icmpv4Repr::DstUnreachable { data, .. }),
+            ) if endpoint.addr.is_unspecified() || endpoint.addr == ip_repr.dst_addr() => {
                 let packet = UdpPacket::new_unchecked(data);
                 match UdpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr(), cksum) {
                     Ok(repr) => endpoint.port == repr.src_port,
@@ -287,8 +307,10 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
                 }
             }
             #[cfg(feature = "proto-ipv6")]
-            (&Endpoint::Udp(endpoint), &IcmpRepr::Ipv6(Icmpv6Repr::DstUnreachable { data, .. }))
-                    if endpoint.addr.is_unspecified() || endpoint.addr == ip_repr.dst_addr() => {
+            (
+                &Endpoint::Udp(endpoint),
+                &IcmpRepr::Ipv6(Icmpv6Repr::DstUnreachable { data, .. }),
+            ) if endpoint.addr.is_unspecified() || endpoint.addr == ip_repr.dst_addr() => {
                 let packet = UdpPacket::new_unchecked(data);
                 match UdpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr(), cksum) {
                     Ok(repr) => endpoint.port == repr.src_port,
@@ -299,86 +321,121 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
             // Echo Request/Reply with the identifier field matching the endpoint
             // port.
             #[cfg(feature = "proto-ipv4")]
-            (&Endpoint::Ident(bound_ident),
-             &IcmpRepr::Ipv4(Icmpv4Repr::EchoRequest { ident, .. })) |
-            (&Endpoint::Ident(bound_ident),
-             &IcmpRepr::Ipv4(Icmpv4Repr::EchoReply { ident, .. })) =>
-                ident == bound_ident,
+            (
+                &Endpoint::Ident(bound_ident),
+                &IcmpRepr::Ipv4(Icmpv4Repr::EchoRequest { ident, .. }),
+            )
+            | (
+                &Endpoint::Ident(bound_ident),
+                &IcmpRepr::Ipv4(Icmpv4Repr::EchoReply { ident, .. }),
+            ) => ident == bound_ident,
             #[cfg(feature = "proto-ipv6")]
-            (&Endpoint::Ident(bound_ident),
-             &IcmpRepr::Ipv6(Icmpv6Repr::EchoRequest { ident, .. })) |
-            (&Endpoint::Ident(bound_ident),
-             &IcmpRepr::Ipv6(Icmpv6Repr::EchoReply { ident, .. })) =>
-                ident == bound_ident,
+            (
+                &Endpoint::Ident(bound_ident),
+                &IcmpRepr::Ipv6(Icmpv6Repr::EchoRequest { ident, .. }),
+            )
+            | (
+                &Endpoint::Ident(bound_ident),
+                &IcmpRepr::Ipv6(Icmpv6Repr::EchoReply { ident, .. }),
+            ) => ident == bound_ident,
             _ => false,
         }
     }
 
-    pub(crate) fn process(&mut self, ip_repr: &IpRepr, icmp_repr: &IcmpRepr,
-                          _cksum: &ChecksumCapabilities) -> Result<()> {
+    pub(crate) fn process(
+        &mut self,
+        ip_repr: &IpRepr,
+        icmp_repr: &IcmpRepr,
+        _cksum: &ChecksumCapabilities,
+    ) -> Result<()> {
         match icmp_repr {
             #[cfg(feature = "proto-ipv4")]
             &IcmpRepr::Ipv4(ref icmp_repr) => {
-                let packet_buf = self.rx_buffer.enqueue(icmp_repr.buffer_len(),
-                                                        ip_repr.src_addr())?;
-                icmp_repr.emit(&mut Icmpv4Packet::new_unchecked(packet_buf),
-                               &ChecksumCapabilities::default());
+                let packet_buf = self
+                    .rx_buffer
+                    .enqueue(icmp_repr.buffer_len(), ip_repr.src_addr())?;
+                icmp_repr.emit(
+                    &mut Icmpv4Packet::new_unchecked(packet_buf),
+                    &ChecksumCapabilities::default(),
+                );
 
-                net_trace!("{}:{}: receiving {} octets",
-                           self.meta.handle, icmp_repr.buffer_len(), packet_buf.len());
-            },
+                net_trace!(
+                    "{}:{}: receiving {} octets",
+                    self.meta.handle,
+                    icmp_repr.buffer_len(),
+                    packet_buf.len()
+                );
+            }
             #[cfg(feature = "proto-ipv6")]
             &IcmpRepr::Ipv6(ref icmp_repr) => {
-                let packet_buf = self.rx_buffer.enqueue(icmp_repr.buffer_len(),
-                                                        ip_repr.src_addr())?;
-                icmp_repr.emit(&ip_repr.src_addr(), &ip_repr.dst_addr(),
-                               &mut Icmpv6Packet::new_unchecked(packet_buf),
-                               &ChecksumCapabilities::default());
+                let packet_buf = self
+                    .rx_buffer
+                    .enqueue(icmp_repr.buffer_len(), ip_repr.src_addr())?;
+                icmp_repr.emit(
+                    &ip_repr.src_addr(),
+                    &ip_repr.dst_addr(),
+                    &mut Icmpv6Packet::new_unchecked(packet_buf),
+                    &ChecksumCapabilities::default(),
+                );
 
-                net_trace!("{}:{}: receiving {} octets",
-                           self.meta.handle, icmp_repr.buffer_len(), packet_buf.len());
-            },
+                net_trace!(
+                    "{}:{}: receiving {} octets",
+                    self.meta.handle,
+                    icmp_repr.buffer_len(),
+                    packet_buf.len()
+                );
+            }
         }
         Ok(())
     }
 
     pub(crate) fn dispatch<F>(&mut self, _caps: &DeviceCapabilities, emit: F) -> Result<()>
-        where F: FnOnce((IpRepr, IcmpRepr)) -> Result<()>
+    where
+        F: FnOnce((IpRepr, IcmpRepr)) -> Result<()>,
     {
-        let handle    = self.meta.handle;
+        let handle = self.meta.handle;
         let hop_limit = self.hop_limit.unwrap_or(64);
         self.tx_buffer.dequeue_with(|remote_endpoint, packet_buf| {
-            net_trace!("{}:{}: sending {} octets",
-                       handle, remote_endpoint, packet_buf.len());
+            net_trace!(
+                "{}:{}: sending {} octets",
+                handle,
+                remote_endpoint,
+                packet_buf.len()
+            );
             match *remote_endpoint {
                 #[cfg(feature = "proto-ipv4")]
                 IpAddress::Ipv4(ipv4_addr) => {
                     let packet = Icmpv4Packet::new_unchecked(&*packet_buf);
                     let repr = Icmpv4Repr::parse(&packet, &ChecksumCapabilities::ignored())?;
                     let ip_repr = IpRepr::Ipv4(Ipv4Repr {
-                        src_addr:    Ipv4Address::default(),
-                        dst_addr:    ipv4_addr,
-                        protocol:    IpProtocol::Icmp,
+                        src_addr: Ipv4Address::default(),
+                        dst_addr: ipv4_addr,
+                        protocol: IpProtocol::Icmp,
                         payload_len: repr.buffer_len(),
-                        hop_limit:   hop_limit,
+                        hop_limit: hop_limit,
                     });
                     emit((ip_repr, IcmpRepr::Ipv4(repr)))
-                },
+                }
                 #[cfg(feature = "proto-ipv6")]
                 IpAddress::Ipv6(ipv6_addr) => {
                     let packet = Icmpv6Packet::new_unchecked(&*packet_buf);
                     let src_addr = Ipv6Address::default();
-                    let repr = Icmpv6Repr::parse(&src_addr.into(), &ipv6_addr.into(), &packet, &ChecksumCapabilities::ignored())?;
+                    let repr = Icmpv6Repr::parse(
+                        &src_addr.into(),
+                        &ipv6_addr.into(),
+                        &packet,
+                        &ChecksumCapabilities::ignored(),
+                    )?;
                     let ip_repr = IpRepr::Ipv6(Ipv6Repr {
-                        src_addr:    src_addr,
-                        dst_addr:    ipv6_addr,
+                        src_addr: src_addr,
+                        dst_addr: ipv6_addr,
                         next_header: IpProtocol::Icmpv6,
                         payload_len: repr.buffer_len(),
-                        hop_limit:   hop_limit,
+                        hop_limit: hop_limit,
                     });
                     emit((ip_repr, IcmpRepr::Ipv6(repr)))
-                },
-                _ => Err(Error::Unaddressable)
+                }
+                _ => Err(Error::Unaddressable),
             }
         })
     }
@@ -400,25 +457,30 @@ impl<'a, 'b> Into<Socket<'a, 'b>> for IcmpSocket<'a, 'b> {
 
 #[cfg(test)]
 mod tests_common {
+    pub use super::*;
     pub use phy::DeviceCapabilities;
     pub use wire::IpAddress;
-    pub use super::*;
 
     pub fn buffer(packets: usize) -> IcmpSocketBuffer<'static, 'static> {
-        IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY; packets], vec![0; 66 * packets])
+        IcmpSocketBuffer::new(
+            vec![IcmpPacketMetadata::EMPTY; packets],
+            vec![0; 66 * packets],
+        )
     }
 
-    pub fn socket(rx_buffer: IcmpSocketBuffer<'static, 'static>,
-              tx_buffer: IcmpSocketBuffer<'static, 'static>) -> IcmpSocket<'static, 'static> {
+    pub fn socket(
+        rx_buffer: IcmpSocketBuffer<'static, 'static>,
+        tx_buffer: IcmpSocketBuffer<'static, 'static>,
+    ) -> IcmpSocket<'static, 'static> {
         IcmpSocket::new(rx_buffer, tx_buffer)
     }
 
-    pub const LOCAL_PORT:  u16         = 53;
+    pub const LOCAL_PORT: u16 = 53;
 
     pub static UDP_REPR: UdpRepr = UdpRepr {
         src_port: 53,
         dst_port: 9090,
-        payload:  &[0xff; 10]
+        payload: &[0xff; 10],
     };
 }
 
@@ -429,13 +491,16 @@ mod test_ipv4 {
     use wire::Icmpv4DstUnreachable;
 
     const REMOTE_IPV4: Ipv4Address = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
-    const LOCAL_IPV4:  Ipv4Address = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
-    const LOCAL_END_V4: IpEndpoint = IpEndpoint { addr: IpAddress::Ipv4(LOCAL_IPV4), port: LOCAL_PORT };
+    const LOCAL_IPV4: Ipv4Address = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
+    const LOCAL_END_V4: IpEndpoint = IpEndpoint {
+        addr: IpAddress::Ipv4(LOCAL_IPV4),
+        port: LOCAL_PORT,
+    };
 
     static ECHOV4_REPR: Icmpv4Repr = Icmpv4Repr::EchoRequest {
-            ident:  0x1234,
-            seq_no: 0x5678,
-            data:   &[0xff; 16]
+        ident: 0x1234,
+        seq_no: 0x5678,
+        data: &[0xff; 16],
     };
 
     static LOCAL_IPV4_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
@@ -443,7 +508,7 @@ mod test_ipv4 {
         dst_addr: REMOTE_IPV4,
         protocol: IpProtocol::Icmp,
         payload_len: 24,
-        hop_limit: 0x40
+        hop_limit: 0x40,
     });
 
     static REMOTE_IPV4_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
@@ -451,14 +516,16 @@ mod test_ipv4 {
         dst_addr: LOCAL_IPV4,
         protocol: IpProtocol::Icmp,
         payload_len: 24,
-        hop_limit: 0x40
+        hop_limit: 0x40,
     });
 
     #[test]
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
-        assert_eq!(socket.send_slice(b"abcdef", IpAddress::default()),
-                   Err(Error::Unaddressable));
+        assert_eq!(
+            socket.send_slice(b"abcdef", IpAddress::default()),
+            Err(Error::Unaddressable)
+        );
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV4.into()), Ok(()));
     }
 
@@ -467,34 +534,51 @@ mod test_ipv4 {
         let mut socket = socket(buffer(0), buffer(1));
         let caps = DeviceCapabilities::default();
 
-        assert_eq!(socket.dispatch(&caps, |_| unreachable!()),
-                   Err(Error::Exhausted));
+        assert_eq!(
+            socket.dispatch(&caps, |_| unreachable!()),
+            Err(Error::Exhausted)
+        );
 
         // This buffer is too long
-        assert_eq!(socket.send_slice(&[0xff; 67], REMOTE_IPV4.into()), Err(Error::Truncated));
+        assert_eq!(
+            socket.send_slice(&[0xff; 67], REMOTE_IPV4.into()),
+            Err(Error::Truncated)
+        );
         assert!(socket.can_send());
 
         let mut bytes = [0xff; 24];
         let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
         ECHOV4_REPR.emit(&mut packet, &caps.checksum);
 
-        assert_eq!(socket.send_slice(&packet.into_inner()[..], REMOTE_IPV4.into()), Ok(()));
-        assert_eq!(socket.send_slice(b"123456", REMOTE_IPV4.into()), Err(Error::Exhausted));
+        assert_eq!(
+            socket.send_slice(&packet.into_inner()[..], REMOTE_IPV4.into()),
+            Ok(())
+        );
+        assert_eq!(
+            socket.send_slice(b"123456", REMOTE_IPV4.into()),
+            Err(Error::Exhausted)
+        );
         assert!(!socket.can_send());
 
-        assert_eq!(socket.dispatch(&caps, |(ip_repr, icmp_repr)| {
-            assert_eq!(ip_repr, LOCAL_IPV4_REPR);
-            assert_eq!(icmp_repr, ECHOV4_REPR.into());
+        assert_eq!(
+            socket.dispatch(&caps, |(ip_repr, icmp_repr)| {
+                assert_eq!(ip_repr, LOCAL_IPV4_REPR);
+                assert_eq!(icmp_repr, ECHOV4_REPR.into());
+                Err(Error::Unaddressable)
+            }),
             Err(Error::Unaddressable)
-        }), Err(Error::Unaddressable));
+        );
         // buffer is not taken off of the tx queue due to the error
         assert!(!socket.can_send());
 
-        assert_eq!(socket.dispatch(&caps, |(ip_repr, icmp_repr)| {
-            assert_eq!(ip_repr, LOCAL_IPV4_REPR);
-            assert_eq!(icmp_repr, ECHOV4_REPR.into());
+        assert_eq!(
+            socket.dispatch(&caps, |(ip_repr, icmp_repr)| {
+                assert_eq!(ip_repr, LOCAL_IPV4_REPR);
+                assert_eq!(icmp_repr, ECHOV4_REPR.into());
+                Ok(())
+            }),
             Ok(())
-        }), Ok(()));
+        );
         // buffer is taken off of the queue this time
         assert!(socket.can_send());
     }
@@ -510,17 +594,26 @@ mod test_ipv4 {
 
         s.set_hop_limit(Some(0x2a));
 
-        assert_eq!(s.send_slice(&packet.into_inner()[..], REMOTE_IPV4.into()), Ok(()));
-        assert_eq!(s.dispatch(&caps, |(ip_repr, _)| {
-            assert_eq!(ip_repr, IpRepr::Ipv4(Ipv4Repr {
-                src_addr: Ipv4Address::UNSPECIFIED,
-                dst_addr: REMOTE_IPV4,
-                protocol: IpProtocol::Icmp,
-                payload_len: ECHOV4_REPR.buffer_len(),
-                hop_limit: 0x2a,
-            }));
+        assert_eq!(
+            s.send_slice(&packet.into_inner()[..], REMOTE_IPV4.into()),
             Ok(())
-        }), Ok(()));
+        );
+        assert_eq!(
+            s.dispatch(&caps, |(ip_repr, _)| {
+                assert_eq!(
+                    ip_repr,
+                    IpRepr::Ipv4(Ipv4Repr {
+                        src_addr: Ipv4Address::UNSPECIFIED,
+                        dst_addr: REMOTE_IPV4,
+                        protocol: IpProtocol::Icmp,
+                        payload_len: ECHOV4_REPR.buffer_len(),
+                        hop_limit: 0x2a,
+                    })
+                );
+                Ok(())
+            }),
+            Ok(())
+        );
     }
 
     #[test]
@@ -539,13 +632,17 @@ mod test_ipv4 {
         let data = &packet.into_inner()[..];
 
         assert!(socket.accepts(&REMOTE_IPV4_REPR, &ECHOV4_REPR.into(), &caps.checksum));
-        assert_eq!(socket.process(&REMOTE_IPV4_REPR, &ECHOV4_REPR.into(), &caps.checksum),
-                   Ok(()));
+        assert_eq!(
+            socket.process(&REMOTE_IPV4_REPR, &ECHOV4_REPR.into(), &caps.checksum),
+            Ok(())
+        );
         assert!(socket.can_recv());
 
         assert!(socket.accepts(&REMOTE_IPV4_REPR, &ECHOV4_REPR.into(), &caps.checksum));
-        assert_eq!(socket.process(&REMOTE_IPV4_REPR, &ECHOV4_REPR.into(), &caps.checksum),
-                   Err(Error::Exhausted));
+        assert_eq!(
+            socket.process(&REMOTE_IPV4_REPR, &ECHOV4_REPR.into(), &caps.checksum),
+            Err(Error::Exhausted)
+        );
 
         assert_eq!(socket.recv(), Ok((&data[..], REMOTE_IPV4.into())));
         assert!(!socket.can_recv());
@@ -560,9 +657,9 @@ mod test_ipv4 {
         let mut bytes = [0xff; 20];
         let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
         let icmp_repr = Icmpv4Repr::EchoRequest {
-            ident:  0x4321,
+            ident: 0x4321,
             seq_no: 0x5678,
-            data:   &[0xff; 16]
+            data: &[0xff; 16],
         };
         icmp_repr.emit(&mut packet, &caps.checksum);
 
@@ -580,7 +677,12 @@ mod test_ipv4 {
 
         let mut bytes = [0xff; 18];
         let mut packet = UdpPacket::new_unchecked(&mut bytes);
-        UDP_REPR.emit(&mut packet, &REMOTE_IPV4.into(), &LOCAL_IPV4.into(), &caps.checksum);
+        UDP_REPR.emit(
+            &mut packet,
+            &REMOTE_IPV4.into(),
+            &LOCAL_IPV4.into(),
+            &caps.checksum,
+        );
 
         let data = &packet.into_inner()[..];
 
@@ -591,16 +693,16 @@ mod test_ipv4 {
                 dst_addr: REMOTE_IPV4,
                 protocol: IpProtocol::Icmp,
                 payload_len: 12,
-                hop_limit: 0x40
+                hop_limit: 0x40,
             },
-            data: data
+            data: data,
         };
         let ip_repr = IpRepr::Unspecified {
             src_addr: REMOTE_IPV4.into(),
             dst_addr: LOCAL_IPV4.into(),
             protocol: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
-            hop_limit: 0x40
+            hop_limit: 0x40,
         };
 
         assert!(!socket.can_recv());
@@ -608,14 +710,19 @@ mod test_ipv4 {
         // Ensure we can accept ICMP error response to the bound
         // UDP port
         assert!(socket.accepts(&ip_repr, &icmp_repr.into(), &caps.checksum));
-        assert_eq!(socket.process(&ip_repr, &icmp_repr.into(), &caps.checksum),
-                   Ok(()));
+        assert_eq!(
+            socket.process(&ip_repr, &icmp_repr.into(), &caps.checksum),
+            Ok(())
+        );
         assert!(socket.can_recv());
 
         let mut bytes = [0x00; 46];
         let mut packet = Icmpv4Packet::new_unchecked(&mut bytes[..]);
         icmp_repr.emit(&mut packet, &caps.checksum);
-        assert_eq!(socket.recv(), Ok((&packet.into_inner()[..], REMOTE_IPV4.into())));
+        assert_eq!(
+            socket.recv(),
+            Ok((&packet.into_inner()[..], REMOTE_IPV4.into()))
+        );
         assert!(!socket.can_recv());
     }
 }
@@ -626,15 +733,18 @@ mod test_ipv6 {
 
     use wire::Icmpv6DstUnreachable;
 
-    const REMOTE_IPV6: Ipv6Address = Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0,
-                                                  0, 0, 0, 0, 0, 0, 0, 1]);
-    const LOCAL_IPV6:  Ipv6Address = Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0,
-                                                  0, 0, 0, 0, 0, 0, 0, 2]);
-    const LOCAL_END_V6: IpEndpoint = IpEndpoint { addr: IpAddress::Ipv6(LOCAL_IPV6), port: LOCAL_PORT };
+    const REMOTE_IPV6: Ipv6Address =
+        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    const LOCAL_IPV6: Ipv6Address =
+        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+    const LOCAL_END_V6: IpEndpoint = IpEndpoint {
+        addr: IpAddress::Ipv6(LOCAL_IPV6),
+        port: LOCAL_PORT,
+    };
     static ECHOV6_REPR: Icmpv6Repr = Icmpv6Repr::EchoRequest {
-            ident:  0x1234,
-            seq_no: 0x5678,
-            data:   &[0xff; 16]
+        ident: 0x1234,
+        seq_no: 0x5678,
+        data: &[0xff; 16],
     };
 
     static LOCAL_IPV6_REPR: IpRepr = IpRepr::Ipv6(Ipv6Repr {
@@ -642,7 +752,7 @@ mod test_ipv6 {
         dst_addr: REMOTE_IPV6,
         next_header: IpProtocol::Icmpv6,
         payload_len: 24,
-        hop_limit: 0x40
+        hop_limit: 0x40,
     });
 
     static REMOTE_IPV6_REPR: IpRepr = IpRepr::Ipv6(Ipv6Repr {
@@ -650,14 +760,16 @@ mod test_ipv6 {
         dst_addr: LOCAL_IPV6,
         next_header: IpProtocol::Icmpv6,
         payload_len: 24,
-        hop_limit: 0x40
+        hop_limit: 0x40,
     });
 
     #[test]
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
-        assert_eq!(socket.send_slice(b"abcdef", IpAddress::default()),
-                   Err(Error::Unaddressable));
+        assert_eq!(
+            socket.send_slice(b"abcdef", IpAddress::default()),
+            Err(Error::Unaddressable)
+        );
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV6.into()), Ok(()));
     }
 
@@ -666,34 +778,56 @@ mod test_ipv6 {
         let mut socket = socket(buffer(0), buffer(1));
         let caps = DeviceCapabilities::default();
 
-        assert_eq!(socket.dispatch(&caps, |_| unreachable!()),
-                   Err(Error::Exhausted));
+        assert_eq!(
+            socket.dispatch(&caps, |_| unreachable!()),
+            Err(Error::Exhausted)
+        );
 
         // This buffer is too long
-        assert_eq!(socket.send_slice(&[0xff; 67], REMOTE_IPV6.into()), Err(Error::Truncated));
+        assert_eq!(
+            socket.send_slice(&[0xff; 67], REMOTE_IPV6.into()),
+            Err(Error::Truncated)
+        );
         assert!(socket.can_send());
 
         let mut bytes = vec![0xff; 24];
         let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
-        ECHOV6_REPR.emit(&LOCAL_IPV6.into(), &REMOTE_IPV6.into(), &mut packet, &caps.checksum);
+        ECHOV6_REPR.emit(
+            &LOCAL_IPV6.into(),
+            &REMOTE_IPV6.into(),
+            &mut packet,
+            &caps.checksum,
+        );
 
-        assert_eq!(socket.send_slice(&packet.into_inner()[..], REMOTE_IPV6.into()), Ok(()));
-        assert_eq!(socket.send_slice(b"123456", REMOTE_IPV6.into()), Err(Error::Exhausted));
+        assert_eq!(
+            socket.send_slice(&packet.into_inner()[..], REMOTE_IPV6.into()),
+            Ok(())
+        );
+        assert_eq!(
+            socket.send_slice(b"123456", REMOTE_IPV6.into()),
+            Err(Error::Exhausted)
+        );
         assert!(!socket.can_send());
 
-        assert_eq!(socket.dispatch(&caps, |(ip_repr, icmp_repr)| {
-            assert_eq!(ip_repr, LOCAL_IPV6_REPR);
-            assert_eq!(icmp_repr, ECHOV6_REPR.into());
+        assert_eq!(
+            socket.dispatch(&caps, |(ip_repr, icmp_repr)| {
+                assert_eq!(ip_repr, LOCAL_IPV6_REPR);
+                assert_eq!(icmp_repr, ECHOV6_REPR.into());
+                Err(Error::Unaddressable)
+            }),
             Err(Error::Unaddressable)
-        }), Err(Error::Unaddressable));
+        );
         // buffer is not taken off of the tx queue due to the error
         assert!(!socket.can_send());
 
-        assert_eq!(socket.dispatch(&caps, |(ip_repr, icmp_repr)| {
-            assert_eq!(ip_repr, LOCAL_IPV6_REPR);
-            assert_eq!(icmp_repr, ECHOV6_REPR.into());
+        assert_eq!(
+            socket.dispatch(&caps, |(ip_repr, icmp_repr)| {
+                assert_eq!(ip_repr, LOCAL_IPV6_REPR);
+                assert_eq!(icmp_repr, ECHOV6_REPR.into());
+                Ok(())
+            }),
             Ok(())
-        }), Ok(()));
+        );
         // buffer is taken off of the queue this time
         assert!(socket.can_send());
     }
@@ -705,21 +839,35 @@ mod test_ipv6 {
 
         let mut bytes = vec![0xff; 24];
         let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
-        ECHOV6_REPR.emit(&LOCAL_IPV6.into(), &REMOTE_IPV6.into(), &mut packet, &caps.checksum);
+        ECHOV6_REPR.emit(
+            &LOCAL_IPV6.into(),
+            &REMOTE_IPV6.into(),
+            &mut packet,
+            &caps.checksum,
+        );
 
         s.set_hop_limit(Some(0x2a));
 
-        assert_eq!(s.send_slice(&packet.into_inner()[..], REMOTE_IPV6.into()), Ok(()));
-        assert_eq!(s.dispatch(&caps, |(ip_repr, _)| {
-            assert_eq!(ip_repr, IpRepr::Ipv6(Ipv6Repr {
-                src_addr: Ipv6Address::UNSPECIFIED,
-                dst_addr: REMOTE_IPV6,
-                next_header: IpProtocol::Icmpv6,
-                payload_len: ECHOV6_REPR.buffer_len(),
-                hop_limit: 0x2a,
-            }));
+        assert_eq!(
+            s.send_slice(&packet.into_inner()[..], REMOTE_IPV6.into()),
             Ok(())
-        }), Ok(()));
+        );
+        assert_eq!(
+            s.dispatch(&caps, |(ip_repr, _)| {
+                assert_eq!(
+                    ip_repr,
+                    IpRepr::Ipv6(Ipv6Repr {
+                        src_addr: Ipv6Address::UNSPECIFIED,
+                        dst_addr: REMOTE_IPV6,
+                        next_header: IpProtocol::Icmpv6,
+                        payload_len: ECHOV6_REPR.buffer_len(),
+                        hop_limit: 0x2a,
+                    })
+                );
+                Ok(())
+            }),
+            Ok(())
+        );
     }
 
     #[test]
@@ -734,17 +882,26 @@ mod test_ipv6 {
 
         let mut bytes = [0xff; 24];
         let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
-        ECHOV6_REPR.emit(&LOCAL_IPV6.into(), &REMOTE_IPV6.into(), &mut packet, &caps.checksum);
+        ECHOV6_REPR.emit(
+            &LOCAL_IPV6.into(),
+            &REMOTE_IPV6.into(),
+            &mut packet,
+            &caps.checksum,
+        );
         let data = &packet.into_inner()[..];
 
         assert!(socket.accepts(&REMOTE_IPV6_REPR, &ECHOV6_REPR.into(), &caps.checksum));
-        assert_eq!(socket.process(&REMOTE_IPV6_REPR, &ECHOV6_REPR.into(), &caps.checksum),
-                   Ok(()));
+        assert_eq!(
+            socket.process(&REMOTE_IPV6_REPR, &ECHOV6_REPR.into(), &caps.checksum),
+            Ok(())
+        );
         assert!(socket.can_recv());
 
         assert!(socket.accepts(&REMOTE_IPV6_REPR, &ECHOV6_REPR.into(), &caps.checksum));
-        assert_eq!(socket.process(&REMOTE_IPV6_REPR, &ECHOV6_REPR.into(), &caps.checksum),
-                   Err(Error::Exhausted));
+        assert_eq!(
+            socket.process(&REMOTE_IPV6_REPR, &ECHOV6_REPR.into(), &caps.checksum),
+            Err(Error::Exhausted)
+        );
 
         assert_eq!(socket.recv(), Ok((&data[..], REMOTE_IPV6.into())));
         assert!(!socket.can_recv());
@@ -759,11 +916,16 @@ mod test_ipv6 {
         let mut bytes = [0xff; 20];
         let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
         let icmp_repr = Icmpv6Repr::EchoRequest {
-            ident:  0x4321,
+            ident: 0x4321,
             seq_no: 0x5678,
-            data:   &[0xff; 16]
+            data: &[0xff; 16],
         };
-        icmp_repr.emit(&LOCAL_IPV6.into(), &REMOTE_IPV6.into(), &mut packet, &caps.checksum);
+        icmp_repr.emit(
+            &LOCAL_IPV6.into(),
+            &REMOTE_IPV6.into(),
+            &mut packet,
+            &caps.checksum,
+        );
 
         // Ensure that a packet with an identifier that isn't the bound
         // ID is not accepted
@@ -779,7 +941,12 @@ mod test_ipv6 {
 
         let mut bytes = [0xff; 18];
         let mut packet = UdpPacket::new_unchecked(&mut bytes);
-        UDP_REPR.emit(&mut packet, &REMOTE_IPV6.into(), &LOCAL_IPV6.into(), &caps.checksum);
+        UDP_REPR.emit(
+            &mut packet,
+            &REMOTE_IPV6.into(),
+            &LOCAL_IPV6.into(),
+            &caps.checksum,
+        );
 
         let data = &packet.into_inner()[..];
 
@@ -790,16 +957,16 @@ mod test_ipv6 {
                 dst_addr: REMOTE_IPV6,
                 next_header: IpProtocol::Icmpv6,
                 payload_len: 12,
-                hop_limit: 0x40
+                hop_limit: 0x40,
             },
-            data: data
+            data: data,
         };
         let ip_repr = IpRepr::Unspecified {
             src_addr: REMOTE_IPV6.into(),
             dst_addr: LOCAL_IPV6.into(),
             protocol: IpProtocol::Icmpv6,
             payload_len: icmp_repr.buffer_len(),
-            hop_limit: 0x40
+            hop_limit: 0x40,
         };
 
         assert!(!socket.can_recv());
@@ -807,14 +974,24 @@ mod test_ipv6 {
         // Ensure we can accept ICMP error response to the bound
         // UDP port
         assert!(socket.accepts(&ip_repr, &icmp_repr.into(), &caps.checksum));
-        assert_eq!(socket.process(&ip_repr, &icmp_repr.into(), &caps.checksum),
-                   Ok(()));
+        assert_eq!(
+            socket.process(&ip_repr, &icmp_repr.into(), &caps.checksum),
+            Ok(())
+        );
         assert!(socket.can_recv());
 
         let mut bytes = [0x00; 66];
         let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
-        icmp_repr.emit(&LOCAL_IPV6.into(), &REMOTE_IPV6.into(), &mut packet, &caps.checksum);
-        assert_eq!(socket.recv(), Ok((&packet.into_inner()[..], REMOTE_IPV6.into())));
+        icmp_repr.emit(
+            &LOCAL_IPV6.into(),
+            &REMOTE_IPV6.into(),
+            &mut packet,
+            &caps.checksum,
+        );
+        assert_eq!(
+            socket.recv(),
+            Ok((&packet.into_inner()[..], REMOTE_IPV6.into()))
+        );
         assert!(!socket.can_recv());
     }
 }

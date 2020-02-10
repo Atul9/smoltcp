@@ -1,14 +1,14 @@
-use {Result, Error};
-use wire::{IpVersion, IpProtocol, IpEndpoint, IpAddress,
-           Ipv4Cidr, Ipv4Address, Ipv4Packet, Ipv4Repr,
-           UdpPacket, UdpRepr,
-           DhcpPacket, DhcpRepr, DhcpMessageType};
-use wire::dhcpv4::field as dhcpv4_field;
-use socket::{SocketSet, SocketHandle, RawSocket, RawSocketBuffer};
-use phy::{Device, ChecksumCapabilities};
+use super::{UDP_CLIENT_PORT, UDP_SERVER_PORT};
 use iface::EthernetInterface as Interface;
-use time::{Instant, Duration};
-use super::{UDP_SERVER_PORT, UDP_CLIENT_PORT};
+use phy::{ChecksumCapabilities, Device};
+use socket::{RawSocket, RawSocketBuffer, SocketHandle, SocketSet};
+use time::{Duration, Instant};
+use wire::dhcpv4::field as dhcpv4_field;
+use wire::{
+    DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpEndpoint, IpProtocol, IpVersion,
+    Ipv4Address, Ipv4Cidr, Ipv4Packet, Ipv4Repr, UdpPacket, UdpRepr,
+};
+use {Error, Result};
 
 const DISCOVER_TIMEOUT: u64 = 10;
 const REQUEST_TIMEOUT: u64 = 1;
@@ -93,8 +93,14 @@ impl Client {
     ///     Instant::now()
     /// );
     /// ```
-    pub fn new<'a, 'b, 'c>(sockets: &mut SocketSet<'a, 'b, 'c>, rx_buffer: RawSocketBuffer<'b, 'c>, tx_buffer: RawSocketBuffer<'b, 'c>, now: Instant) -> Self
-    where 'b: 'c,
+    pub fn new<'a, 'b, 'c>(
+        sockets: &mut SocketSet<'a, 'b, 'c>,
+        rx_buffer: RawSocketBuffer<'b, 'c>,
+        tx_buffer: RawSocketBuffer<'b, 'c>,
+        now: Instant,
+    ) -> Self
+    where
+        'b: 'c,
     {
         let raw_socket = RawSocket::new(IpVersion::Ipv4, IpProtocol::Udp, rx_buffer, tx_buffer);
         let raw_handle = sockets.add(raw_socket);
@@ -123,35 +129,39 @@ impl Client {
     ///
     /// A Config can be returned from any valid DHCP reply. The client
     /// performs no bookkeeping on configuration or their changes.
-    pub fn poll<DeviceT>(&mut self,
-                         iface: &mut Interface<DeviceT>, sockets: &mut SocketSet,
-                         now: Instant
-                        ) -> Result<Option<Config>>
+    pub fn poll<DeviceT>(
+        &mut self,
+        iface: &mut Interface<DeviceT>,
+        sockets: &mut SocketSet,
+        now: Instant,
+    ) -> Result<Option<Config>>
     where
         DeviceT: for<'d> Device<'d>,
     {
-        let checksum_caps = ChecksumCapabilities::default();  // ?
+        let checksum_caps = ChecksumCapabilities::default(); // ?
         let mut raw_socket = sockets.get::<RawSocket>(self.raw_handle);
 
         // Process incoming
         let config = {
-            match raw_socket.recv()
-                .and_then(|packet| parse_udp(packet, &checksum_caps)) {
-                    Ok((IpEndpoint {
+            match raw_socket
+                .recv()
+                .and_then(|packet| parse_udp(packet, &checksum_caps))
+            {
+                Ok((
+                    IpEndpoint {
                         addr: IpAddress::Ipv4(src_ip),
                         port: UDP_SERVER_PORT,
-                    }, IpEndpoint {
+                    },
+                    IpEndpoint {
                         addr: _,
                         port: UDP_CLIENT_PORT,
-                    }, payload)) =>
-                        self.ingress(iface, now, payload, &src_ip),
-                    Ok(_) =>
-                        return Err(Error::Unrecognized),
-                    Err(Error::Exhausted) =>
-                        None,
-                    Err(e) =>
-                        return Err(e),
-                }
+                    },
+                    payload,
+                )) => self.ingress(iface, now, payload, &src_ip),
+                Ok(_) => return Err(Error::Unrecognized),
+                Err(Error::Exhausted) => None,
+                Err(e) => return Err(e),
+            }
         };
 
         if config.is_some() {
@@ -168,10 +178,13 @@ impl Client {
         }
     }
 
-    fn ingress<DeviceT>(&mut self,
-                        iface: &mut Interface<DeviceT>, now: Instant,
-                        data: &[u8], src_ip: &Ipv4Address
-                       ) -> Option<Config>
+    fn ingress<DeviceT>(
+        &mut self,
+        iface: &mut Interface<DeviceT>,
+        now: Instant,
+        data: &[u8],
+        src_ip: &Ipv4Address,
+    ) -> Option<Config>
     where
         DeviceT: for<'d> Device<'d>,
     {
@@ -190,32 +203,44 @@ impl Client {
             }
         };
         let mac = iface.ethernet_addr();
-        if dhcp_repr.client_hardware_address != mac { return None }
-        if dhcp_repr.transaction_id != self.transaction_id { return None }
+        if dhcp_repr.client_hardware_address != mac {
+            return None;
+        }
+        if dhcp_repr.transaction_id != self.transaction_id {
+            return None;
+        }
         let server_identifier = match dhcp_repr.server_identifier {
             Some(server_identifier) => server_identifier,
             None => return None,
         };
-        net_debug!("DHCP recv {:?} from {} ({})", dhcp_repr.message_type, src_ip, server_identifier);
+        net_debug!(
+            "DHCP recv {:?} from {} ({})",
+            dhcp_repr.message_type,
+            src_ip,
+            server_identifier
+        );
 
-        let config = if (dhcp_repr.message_type == DhcpMessageType::Offer ||
-                         dhcp_repr.message_type == DhcpMessageType::Ack) &&
-                      dhcp_repr.your_ip != Ipv4Address::UNSPECIFIED {
-               let address = dhcp_repr.subnet_mask
-                   .and_then(|mask| IpAddress::Ipv4(mask).to_prefix_len())
-                   .map(|prefix_len| Ipv4Cidr::new(dhcp_repr.your_ip, prefix_len));
-               let router = dhcp_repr.router;
-               let dns_servers = dhcp_repr.dns_servers
-                   .unwrap_or([None; 3]);
-               Some(Config { address, router, dns_servers })
+        let config = if (dhcp_repr.message_type == DhcpMessageType::Offer
+            || dhcp_repr.message_type == DhcpMessageType::Ack)
+            && dhcp_repr.your_ip != Ipv4Address::UNSPECIFIED
+        {
+            let address = dhcp_repr
+                .subnet_mask
+                .and_then(|mask| IpAddress::Ipv4(mask).to_prefix_len())
+                .map(|prefix_len| Ipv4Cidr::new(dhcp_repr.your_ip, prefix_len));
+            let router = dhcp_repr.router;
+            let dns_servers = dhcp_repr.dns_servers.unwrap_or([None; 3]);
+            Some(Config {
+                address,
+                router,
+                dns_servers,
+            })
         } else {
             None
         };
 
         match self.state {
-            ClientState::Discovering
-                if dhcp_repr.message_type == DhcpMessageType::Offer =>
-            {
+            ClientState::Discovering if dhcp_repr.message_type == DhcpMessageType::Offer => {
                 self.next_egress = now;
                 let r_state = RequestState {
                     retry: 0,
@@ -225,8 +250,8 @@ impl Client {
                 Some(ClientState::Requesting(r_state))
             }
             ClientState::Requesting(ref r_state)
-                if dhcp_repr.message_type == DhcpMessageType::Ack &&
-                   server_identifier == r_state.server_identifier =>
+                if dhcp_repr.message_type == DhcpMessageType::Ack
+                    && server_identifier == r_state.server_identifier =>
             {
                 self.next_egress = now + Duration::from_secs(RENEW_INTERVAL);
                 let p_state = RenewState {
@@ -237,20 +262,27 @@ impl Client {
                 Some(ClientState::Renew(p_state))
             }
             ClientState::Renew(ref mut p_state)
-                if dhcp_repr.message_type == DhcpMessageType::Ack &&
-                server_identifier == p_state.server_identifier =>
+                if dhcp_repr.message_type == DhcpMessageType::Ack
+                    && server_identifier == p_state.server_identifier =>
             {
                 self.next_egress = now + Duration::from_secs(RENEW_INTERVAL);
                 p_state.retry = 0;
                 None
             }
-            _ => None
-        }.map(|new_state| self.state = new_state);
+            _ => None,
+        }
+        .map(|new_state| self.state = new_state);
 
         config
     }
 
-    fn egress<DeviceT: for<'d> Device<'d>>(&mut self, iface: &mut Interface<DeviceT>, raw_socket: &mut RawSocket, checksum_caps: &ChecksumCapabilities, now: Instant) -> Result<Option<Config>> {
+    fn egress<DeviceT: for<'d> Device<'d>>(
+        &mut self,
+        iface: &mut Interface<DeviceT>,
+        raw_socket: &mut RawSocket,
+        checksum_caps: &ChecksumCapabilities,
+        now: Instant,
+    ) -> Result<Option<Config>> {
         // Reset after maximum amount of retries
         let retries_exceeded = match self.state {
             ClientState::Requesting(ref mut r_state) if r_state.retry >= REQUEST_RETRIES => {
@@ -261,7 +293,7 @@ impl Client {
                 net_debug!("DHCP renew retries exceeded, restarting discovery");
                 true
             }
-            _ => false
+            _ => false,
         };
         if retries_exceeded {
             self.reset(now);
@@ -298,10 +330,8 @@ impl Client {
             dns_servers: None,
         };
         let mut send_packet = |iface, endpoint, dhcp_repr| {
-            send_packet(iface, raw_socket, &endpoint, &dhcp_repr, checksum_caps)
-                .map(|()| None)
+            send_packet(iface, raw_socket, &endpoint, &dhcp_repr, checksum_caps).map(|()| None)
         };
-
 
         match self.state {
             ClientState::Discovering => {
@@ -322,10 +352,8 @@ impl Client {
                     port: UDP_SERVER_PORT,
                 };
                 let requested_ip = match iface.ipv4_addr() {
-                    Some(addr) if !addr.is_unspecified() =>
-                        Some(addr),
-                    _ =>
-                        None,
+                    Some(addr) if !addr.is_unspecified() => Some(addr),
+                    _ => None,
                 };
                 dhcp_repr.message_type = DhcpMessageType::Request;
                 dhcp_repr.broadcast = false;
@@ -367,7 +395,13 @@ impl Client {
     }
 }
 
-fn send_packet<DeviceT: for<'d> Device<'d>>(iface: &mut Interface<DeviceT>, raw_socket: &mut RawSocket, endpoint: &IpEndpoint, dhcp_repr: &DhcpRepr, checksum_caps: &ChecksumCapabilities) -> Result<()> {
+fn send_packet<DeviceT: for<'d> Device<'d>>(
+    iface: &mut Interface<DeviceT>,
+    raw_socket: &mut RawSocket,
+    endpoint: &IpEndpoint,
+    dhcp_repr: &DhcpRepr,
+    checksum_caps: &ChecksumCapabilities,
+) -> Result<()> {
     let mut dhcp_payload_buf = [0; 320];
     assert!(dhcp_repr.buffer_len() <= dhcp_payload_buf.len());
     let dhcp_payload = &mut dhcp_payload_buf[0..dhcp_repr.buffer_len()];
@@ -395,32 +429,35 @@ fn send_packet<DeviceT: for<'d> Device<'d>>(iface: &mut Interface<DeviceT>, raw_
         hop_limit: 64,
     };
 
-    let mut packet = raw_socket.send(
-        ipv4_repr.buffer_len() + udp_repr.buffer_len()
-    )?;
+    let mut packet = raw_socket.send(ipv4_repr.buffer_len() + udp_repr.buffer_len())?;
     {
         let mut ipv4_packet = Ipv4Packet::new_unchecked(&mut packet);
         ipv4_repr.emit(&mut ipv4_packet, &checksum_caps);
     }
     {
-        let mut udp_packet = UdpPacket::new_unchecked(
-            &mut packet[ipv4_repr.buffer_len()..]
+        let mut udp_packet = UdpPacket::new_unchecked(&mut packet[ipv4_repr.buffer_len()..]);
+        udp_repr.emit(
+            &mut udp_packet,
+            &src_addr.into(),
+            &dst_addr.into(),
+            checksum_caps,
         );
-        udp_repr.emit(&mut udp_packet,
-                      &src_addr.into(), &dst_addr.into(),
-                      checksum_caps);
     }
     Ok(())
 }
 
-fn parse_udp<'a>(data: &'a [u8], checksum_caps: &ChecksumCapabilities) -> Result<(IpEndpoint, IpEndpoint, &'a [u8])> {
+fn parse_udp<'a>(
+    data: &'a [u8],
+    checksum_caps: &ChecksumCapabilities,
+) -> Result<(IpEndpoint, IpEndpoint, &'a [u8])> {
     let ipv4_packet = Ipv4Packet::new_checked(data)?;
     let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?;
     let udp_packet = UdpPacket::new_checked(ipv4_packet.payload())?;
     let udp_repr = UdpRepr::parse(
         &udp_packet,
-        &ipv4_repr.src_addr.into(), &ipv4_repr.dst_addr.into(),
-        checksum_caps
+        &ipv4_repr.src_addr.into(),
+        &ipv4_repr.dst_addr.into(),
+        checksum_caps,
     )?;
     let src = IpEndpoint {
         addr: ipv4_repr.src_addr.into(),

@@ -2,9 +2,9 @@
 
 use byteorder::{ByteOrder, NetworkEndian};
 
-use {Error, Result};
-use super::{EthernetAddress, Ipv4Address};
 use super::arp::Hardware;
+use super::{EthernetAddress, Ipv4Address};
+use {Error, Result};
 
 const DHCP_MAGIC_NUMBER: u32 = 0x63825363;
 
@@ -33,8 +33,11 @@ enum_with_unknown! {
 impl MessageType {
     fn opcode(&self) -> OpCode {
         match *self {
-            MessageType::Discover | MessageType::Inform | MessageType::Request |
-                MessageType::Decline | MessageType::Release => OpCode::Request,
+            MessageType::Discover
+            | MessageType::Inform
+            | MessageType::Request
+            | MessageType::Decline
+            | MessageType::Release => OpCode::Request,
             MessageType::Offer | MessageType::Ack | MessageType::Nak => OpCode::Reply,
             MessageType::Unknown(_) => OpCode::Unknown(0),
         }
@@ -53,7 +56,7 @@ pub enum DhcpOption<'a> {
     Router(Ipv4Address),
     SubnetMask(Ipv4Address),
     MaximumDhcpMessageSize(u16),
-    Other { kind: u8, data: &'a [u8] }
+    Other { kind: u8, data: &'a [u8] },
 }
 
 impl<'a> DhcpOption<'a> {
@@ -75,12 +78,10 @@ impl<'a> DhcpOption<'a> {
                 skip_len = length + 2;
                 let data = buffer.get(2..skip_len).ok_or(Error::Truncated)?;
                 match (kind, length) {
-                    (field::OPT_END, _) |
-                    (field::OPT_PAD, _) =>
-                        unreachable!(),
+                    (field::OPT_END, _) | (field::OPT_PAD, _) => unreachable!(),
                     (field::OPT_DHCP_MESSAGE_TYPE, 1) => {
                         option = DhcpOption::MessageType(MessageType::from(data[0]));
-                    },
+                    }
                     (field::OPT_REQUESTED_IP, 4) => {
                         option = DhcpOption::RequestedIp(Ipv4Address::from_bytes(data));
                     }
@@ -89,7 +90,8 @@ impl<'a> DhcpOption<'a> {
                         if hardware_type != Hardware::Ethernet {
                             return Err(Error::Unrecognized);
                         }
-                        option = DhcpOption::ClientIdentifier(EthernetAddress::from_bytes(&data[1..]));
+                        option =
+                            DhcpOption::ClientIdentifier(EthernetAddress::from_bytes(&data[1..]));
                     }
                     (field::OPT_SERVER_IDENTIFIER, 4) => {
                         option = DhcpOption::ServerIdentifier(Ipv4Address::from_bytes(data));
@@ -101,10 +103,15 @@ impl<'a> DhcpOption<'a> {
                         option = DhcpOption::SubnetMask(Ipv4Address::from_bytes(data));
                     }
                     (field::OPT_MAX_DHCP_MESSAGE_SIZE, 2) => {
-                        option = DhcpOption::MaximumDhcpMessageSize(u16::from_be_bytes([data[0], data[1]]));
+                        option = DhcpOption::MaximumDhcpMessageSize(u16::from_be_bytes([
+                            data[0], data[1],
+                        ]));
                     }
                     (_, _) => {
-                        option = DhcpOption::Other { kind: kind, data: data };
+                        option = DhcpOption::Other {
+                            kind: kind,
+                            data: data,
+                        };
                     }
                 }
             }
@@ -117,19 +124,13 @@ impl<'a> DhcpOption<'a> {
             &DhcpOption::EndOfList => 1,
             &DhcpOption::Pad => 1,
             &DhcpOption::MessageType(_) => 3,
-            &DhcpOption::ClientIdentifier(eth_addr) => {
-                3 + eth_addr.as_bytes().len()
-            }
-            &DhcpOption::RequestedIp(ip) |
-            &DhcpOption::ServerIdentifier(ip) |
-            &DhcpOption::Router(ip) |
-            &DhcpOption::SubnetMask(ip) => {
-                2 + ip.as_bytes().len()
-            },
-            &DhcpOption::MaximumDhcpMessageSize(_) => {
-                4
-            }
-            &DhcpOption::Other { data, .. } => 2 + data.len()
+            &DhcpOption::ClientIdentifier(eth_addr) => 3 + eth_addr.as_bytes().len(),
+            &DhcpOption::RequestedIp(ip)
+            | &DhcpOption::ServerIdentifier(ip)
+            | &DhcpOption::Router(ip)
+            | &DhcpOption::SubnetMask(ip) => 2 + ip.as_bytes().len(),
+            &DhcpOption::MaximumDhcpMessageSize(_) => 4,
+            &DhcpOption::Other { data, .. } => 2 + data.len(),
         }
     }
 
@@ -158,19 +159,19 @@ impl<'a> DhcpOption<'a> {
                         buffer[2] = u16::from(Hardware::Ethernet) as u8;
                         buffer[3..9].copy_from_slice(eth_addr.as_bytes());
                     }
-                    &DhcpOption::RequestedIp(ip)  => {
+                    &DhcpOption::RequestedIp(ip) => {
                         buffer[0] = field::OPT_REQUESTED_IP;
                         buffer[2..6].copy_from_slice(ip.as_bytes());
                     }
-                    &DhcpOption::ServerIdentifier(ip)  => {
+                    &DhcpOption::ServerIdentifier(ip) => {
                         buffer[0] = field::OPT_SERVER_IDENTIFIER;
                         buffer[2..6].copy_from_slice(ip.as_bytes());
                     }
-                    &DhcpOption::Router(ip)  => {
+                    &DhcpOption::Router(ip) => {
                         buffer[0] = field::OPT_ROUTER;
                         buffer[2..6].copy_from_slice(ip.as_bytes());
                     }
-                    &DhcpOption::SubnetMask(mask)  => {
+                    &DhcpOption::SubnetMask(mask) => {
                         buffer[0] = field::OPT_SUBNET_MASK;
                         buffer[2..6].copy_from_slice(mask.as_bytes());
                     }
@@ -178,7 +179,10 @@ impl<'a> DhcpOption<'a> {
                         buffer[0] = field::OPT_MAX_DHCP_MESSAGE_SIZE;
                         buffer[2..4].copy_from_slice(&size.to_be_bytes()[..]);
                     }
-                    &DhcpOption::Other { kind, data: provided } => {
+                    &DhcpOption::Other {
+                        kind,
+                        data: provided,
+                    } => {
                         buffer[0] = kind;
                         buffer[2..skip_length].copy_from_slice(provided);
                     }
@@ -192,7 +196,7 @@ impl<'a> DhcpOption<'a> {
 /// A read/write wrapper around a Dynamic Host Configuration Protocol packet buffer.
 #[derive(Debug, PartialEq)]
 pub struct Packet<T: AsRef<[u8]>> {
-    buffer: T
+    buffer: T,
 }
 
 pub(crate) mod field {
@@ -682,19 +686,30 @@ impl<'a> Repr<'a> {
         let mut len = field::OPTIONS.start;
         // message type and end-of-options options
         len += 3 + 1;
-        if self.requested_ip.is_some() { len += 6; }
-        if self.client_identifier.is_some() { len += 9; }
-        if self.server_identifier.is_some() { len += 6; }
-        if self.max_size.is_some() { len += 4; }
-        if let Some(list) = self.parameter_request_list { len += list.len() + 2; }
+        if self.requested_ip.is_some() {
+            len += 6;
+        }
+        if self.client_identifier.is_some() {
+            len += 9;
+        }
+        if self.server_identifier.is_some() {
+            len += 6;
+        }
+        if self.max_size.is_some() {
+            len += 4;
+        }
+        if let Some(list) = self.parameter_request_list {
+            len += list.len() + 2;
+        }
 
         len
     }
 
     /// Parse a DHCP packet and return a high-level representation.
     pub fn parse<T>(packet: &Packet<&'a T>) -> Result<Self>
-            where T: AsRef<[u8]> + ?Sized {
-
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
         let transaction_id = packet.transaction_id();
         let client_hardware_address = packet.client_hardware_address();
         let client_ip = packet.client_ip();
@@ -731,12 +746,12 @@ impl<'a> Repr<'a> {
             let (next_options, option) = DhcpOption::parse(options)?;
             match option {
                 DhcpOption::EndOfList => break,
-                DhcpOption::Pad => {},
+                DhcpOption::Pad => {}
                 DhcpOption::MessageType(value) => {
                     if value.opcode() == packet.opcode() {
                         message_type = Ok(value);
                     }
-                },
+                }
                 DhcpOption::RequestedIp(ip) => {
                     requested_ip = Some(ip);
                 }
@@ -751,24 +766,32 @@ impl<'a> Repr<'a> {
                 }
                 DhcpOption::SubnetMask(mask) => {
                     subnet_mask = Some(mask);
-                },
+                }
                 DhcpOption::MaximumDhcpMessageSize(size) => {
                     max_size = Some(size);
                 }
-                DhcpOption::Other {kind: field::OPT_PARAMETER_REQUEST_LIST, data} => {
+                DhcpOption::Other {
+                    kind: field::OPT_PARAMETER_REQUEST_LIST,
+                    data,
+                } => {
                     parameter_request_list = Some(data);
                 }
-                DhcpOption::Other {kind: field::OPT_DOMAIN_NAME_SERVER, data} => {
+                DhcpOption::Other {
+                    kind: field::OPT_DOMAIN_NAME_SERVER,
+                    data,
+                } => {
                     let mut dns_servers_inner = [None; 3];
                     for i in 0..3 {
                         let offset = 4 * i;
                         let end = offset + 4;
-                        if end > data.len() { break }
+                        if end > data.len() {
+                            break;
+                        }
                         dns_servers_inner[i] = Some(Ipv4Address::from_bytes(&data[offset..end]));
                     }
                     dns_servers = Some(dns_servers_inner);
                 }
-                DhcpOption::Other {..} => {}
+                DhcpOption::Other { .. } => {}
             }
             options = next_options;
         }
@@ -776,9 +799,21 @@ impl<'a> Repr<'a> {
         let broadcast = packet.broadcast_flag();
 
         Ok(Repr {
-            transaction_id, client_hardware_address, client_ip, your_ip, server_ip, relay_agent_ip,
-            broadcast, requested_ip, server_identifier, router,
-            subnet_mask, client_identifier, parameter_request_list, dns_servers, max_size,
+            transaction_id,
+            client_hardware_address,
+            client_ip,
+            your_ip,
+            server_ip,
+            relay_agent_ip,
+            broadcast,
+            requested_ip,
+            server_identifier,
+            router,
+            subnet_mask,
+            client_identifier,
+            parameter_request_list,
+            dns_servers,
+            max_size,
             message_type: message_type?,
         })
     }
@@ -786,7 +821,9 @@ impl<'a> Repr<'a> {
     /// Emit a high-level representation into a Dynamic Host
     /// Configuration Protocol packet.
     pub fn emit<T>(&self, packet: &mut Packet<&mut T>) -> Result<()>
-            where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
+    where
+        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
+    {
         packet.set_sname_and_boot_file_to_zero();
         packet.set_opcode(self.message_type.opcode());
         packet.set_hardware_type(Hardware::Ethernet);
@@ -804,28 +841,39 @@ impl<'a> Repr<'a> {
 
         {
             let mut options = packet.options_mut()?;
-            let tmp = options; options = DhcpOption::MessageType(self.message_type).emit(tmp);
+            let tmp = options;
+            options = DhcpOption::MessageType(self.message_type).emit(tmp);
             if let Some(eth_addr) = self.client_identifier {
-                let tmp = options; options = DhcpOption::ClientIdentifier(eth_addr).emit(tmp);
+                let tmp = options;
+                options = DhcpOption::ClientIdentifier(eth_addr).emit(tmp);
             }
             if let Some(ip) = self.server_identifier {
-                let tmp = options; options = DhcpOption::ServerIdentifier(ip).emit(tmp);
+                let tmp = options;
+                options = DhcpOption::ServerIdentifier(ip).emit(tmp);
             }
             if let Some(ip) = self.router {
-                let tmp = options; options = DhcpOption::Router(ip).emit(tmp);
+                let tmp = options;
+                options = DhcpOption::Router(ip).emit(tmp);
             }
             if let Some(ip) = self.subnet_mask {
-                let tmp = options; options = DhcpOption::SubnetMask(ip).emit(tmp);
+                let tmp = options;
+                options = DhcpOption::SubnetMask(ip).emit(tmp);
             }
             if let Some(ip) = self.requested_ip {
-                let tmp = options; options = DhcpOption::RequestedIp(ip).emit(tmp);
+                let tmp = options;
+                options = DhcpOption::RequestedIp(ip).emit(tmp);
             }
             if let Some(size) = self.max_size {
-                let tmp = options; options = DhcpOption::MaximumDhcpMessageSize(size).emit(tmp);
+                let tmp = options;
+                options = DhcpOption::MaximumDhcpMessageSize(size).emit(tmp);
             }
             if let Some(list) = self.parameter_request_list {
-                let option = DhcpOption::Other{ kind: field::OPT_PARAMETER_REQUEST_LIST, data: list };
-                let tmp = options; options = option.emit(tmp);
+                let option = DhcpOption::Other {
+                    kind: field::OPT_PARAMETER_REQUEST_LIST,
+                    data: list,
+                };
+                let tmp = options;
+                options = option.emit(tmp);
             }
             DhcpOption::EndOfList.emit(options);
         }
@@ -836,53 +884,57 @@ impl<'a> Repr<'a> {
 
 #[cfg(test)]
 mod test {
-    use wire::Ipv4Address;
     use super::*;
+    use wire::Ipv4Address;
 
     const MAGIC_COOKIE: u32 = 0x63825363;
 
     static DISCOVER_BYTES: &[u8] = &[
-        0x01, 0x01, 0x06, 0x00, 0x00, 0x00, 0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b, 0x82, 0x01,
-        0xfc, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x63, 0x82, 0x53, 0x63,
-        0x35, 0x01, 0x01, 0x3d, 0x07, 0x01, 0x00, 0x0b, 0x82, 0x01, 0xfc, 0x42, 0x32, 0x04, 0x00, 0x00,
-        0x00, 0x00, 0x39, 0x2, 0x5, 0xdc, 0x37, 0x04, 0x01, 0x03, 0x06, 0x2a, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01, 0x01, 0x06, 0x00, 0x00, 0x00, 0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b,
+        0x82, 0x01, 0xfc, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x63, 0x82, 0x53, 0x63,
+        0x35, 0x01, 0x01, 0x3d, 0x07, 0x01, 0x00, 0x0b, 0x82, 0x01, 0xfc, 0x42, 0x32, 0x04, 0x00,
+        0x00, 0x00, 0x00, 0x39, 0x2, 0x5, 0xdc, 0x37, 0x04, 0x01, 0x03, 0x06, 0x2a, 0xff, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
     static ACK_BYTES: &[u8] = &[
-        0x02, 0x01, 0x06, 0x00, 0xcc, 0x34, 0x75, 0xab, 0x00, 0x00, 0x80, 0x00, 0x0a, 0xff, 0x06, 0x91,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xff, 0x06, 0xfe, 0x34, 0x17, 0xeb, 0xc9,
-        0xaa, 0x2f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x63, 0x82, 0x53, 0x63,
-        0x35, 0x01, 0x05, 0x36, 0x04, 0xa3, 0x01, 0x4a, 0x16, 0x01, 0x04, 0xff, 0xff, 0xff, 0x00, 0x2b,
-        0x05, 0xdc, 0x03, 0x4e, 0x41, 0x50, 0x0f, 0x15, 0x6e, 0x61, 0x74, 0x2e, 0x70, 0x68, 0x79, 0x73,
-        0x69, 0x63, 0x73, 0x2e, 0x6f, 0x78, 0x2e, 0x61, 0x63, 0x2e, 0x75, 0x6b, 0x00, 0x03, 0x04, 0x0a,
-        0xff, 0x06, 0xfe, 0x06, 0x10, 0xa3, 0x01, 0x4a, 0x06, 0xa3, 0x01, 0x4a, 0x07, 0xa3, 0x01, 0x4a,
-        0x03, 0xa3, 0x01, 0x4a, 0x04, 0x2c, 0x10, 0xa3, 0x01, 0x4a, 0x03, 0xa3, 0x01, 0x4a, 0x04, 0xa3,
-        0x01, 0x4a, 0x06, 0xa3, 0x01, 0x4a, 0x07, 0x2e, 0x01, 0x08, 0xff
+        0x02, 0x01, 0x06, 0x00, 0xcc, 0x34, 0x75, 0xab, 0x00, 0x00, 0x80, 0x00, 0x0a, 0xff, 0x06,
+        0x91, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xff, 0x06, 0xfe, 0x34, 0x17,
+        0xeb, 0xc9, 0xaa, 0x2f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x63, 0x82, 0x53, 0x63,
+        0x35, 0x01, 0x05, 0x36, 0x04, 0xa3, 0x01, 0x4a, 0x16, 0x01, 0x04, 0xff, 0xff, 0xff, 0x00,
+        0x2b, 0x05, 0xdc, 0x03, 0x4e, 0x41, 0x50, 0x0f, 0x15, 0x6e, 0x61, 0x74, 0x2e, 0x70, 0x68,
+        0x79, 0x73, 0x69, 0x63, 0x73, 0x2e, 0x6f, 0x78, 0x2e, 0x61, 0x63, 0x2e, 0x75, 0x6b, 0x00,
+        0x03, 0x04, 0x0a, 0xff, 0x06, 0xfe, 0x06, 0x10, 0xa3, 0x01, 0x4a, 0x06, 0xa3, 0x01, 0x4a,
+        0x07, 0xa3, 0x01, 0x4a, 0x03, 0xa3, 0x01, 0x4a, 0x04, 0x2c, 0x10, 0xa3, 0x01, 0x4a, 0x03,
+        0xa3, 0x01, 0x4a, 0x04, 0xa3, 0x01, 0x4a, 0x06, 0xa3, 0x01, 0x4a, 0x07, 0x2e, 0x01, 0x08,
+        0xff,
     ];
 
     const IP_NULL: Ipv4Address = Ipv4Address([0, 0, 0, 0]);
@@ -924,9 +976,13 @@ mod test {
         assert_eq!(options.len(), 6 + 1 + 7);
 
         let (options, client_id) = DhcpOption::parse(options).unwrap();
-        assert_eq!(client_id, DhcpOption::Other {
-            kind: field::OPT_PARAMETER_REQUEST_LIST, data: &[1, 3, 6, 42]
-        });
+        assert_eq!(
+            client_id,
+            DhcpOption::Other {
+                kind: field::OPT_PARAMETER_REQUEST_LIST,
+                data: &[1, 3, 6, 42]
+            }
+        );
         assert_eq!(options.len(), 1 + 7);
 
         let (options, client_id) = DhcpOption::parse(options).unwrap();
@@ -955,14 +1011,20 @@ mod test {
 
         {
             let mut options = packet.options_mut().unwrap();
-            let tmp = options; options = DhcpOption::MessageType(MessageType::Discover).emit(tmp);
-            let tmp = options; options = DhcpOption::ClientIdentifier(CLIENT_MAC).emit(tmp);
-            let tmp = options; options = DhcpOption::RequestedIp(IP_NULL).emit(tmp);
-            let tmp = options; options = DhcpOption::MaximumDhcpMessageSize(DHCP_SIZE).emit(tmp);
+            let tmp = options;
+            options = DhcpOption::MessageType(MessageType::Discover).emit(tmp);
+            let tmp = options;
+            options = DhcpOption::ClientIdentifier(CLIENT_MAC).emit(tmp);
+            let tmp = options;
+            options = DhcpOption::RequestedIp(IP_NULL).emit(tmp);
+            let tmp = options;
+            options = DhcpOption::MaximumDhcpMessageSize(DHCP_SIZE).emit(tmp);
             let option = DhcpOption::Other {
-                kind: field::OPT_PARAMETER_REQUEST_LIST, data: &[1, 3, 6, 42],
+                kind: field::OPT_PARAMETER_REQUEST_LIST,
+                data: &[1, 3, 6, 42],
             };
-            let tmp = options; options = option.emit(tmp);
+            let tmp = options;
+            options = option.emit(tmp);
             DhcpOption::EndOfList.emit(options);
         }
 
@@ -1028,7 +1090,10 @@ mod test {
             let rest = dhcp_option.emit(&mut bytes);
             assert_eq!(rest.len(), 0);
         }
-        assert_eq!(&bytes[0..2], &[field::OPT_PARAMETER_REQUEST_LIST, DATA.len() as u8]);
+        assert_eq!(
+            &bytes[0..2],
+            &[field::OPT_PARAMETER_REQUEST_LIST, DATA.len() as u8]
+        );
         assert_eq!(&bytes[2..], DATA);
     }
 
@@ -1039,9 +1104,13 @@ mod test {
         // The packet described by ACK_BYTES advertises 4 DNS servers
         // Here we ensure that we correctly parse the first 3 into our fixed
         // length-3 array (see issue #305)
-        assert_eq!(repr.dns_servers,  Some([
-            Some(Ipv4Address([163, 1, 74, 6])),
-            Some(Ipv4Address([163, 1, 74, 7])),
-            Some(Ipv4Address([163, 1, 74, 3]))]));
+        assert_eq!(
+            repr.dns_servers,
+            Some([
+                Some(Ipv4Address([163, 1, 74, 6])),
+                Some(Ipv4Address([163, 1, 74, 7])),
+                Some(Ipv4Address([163, 1, 74, 3]))
+            ])
+        );
     }
 }

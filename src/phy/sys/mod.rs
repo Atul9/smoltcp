@@ -1,25 +1,25 @@
 #![allow(unsafe_code)]
 
 use libc;
-use std::{mem, ptr, io};
 use std::os::unix::io::RawFd;
+use std::{io, mem, ptr};
 use time::Duration;
 
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
 mod imp;
 
-#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
-pub mod raw_socket;
 #[cfg(all(feature = "phy-raw_socket", not(target_os = "linux"), unix))]
 pub mod bpf;
+#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
+pub mod raw_socket;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub mod tap_interface;
 
-#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
-pub use self::raw_socket::RawSocketDesc;
 #[cfg(all(feature = "phy-raw_socket", not(target_os = "linux"), unix))]
 pub use self::bpf::BpfDevice as RawSocketDesc;
+#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
+pub use self::raw_socket::RawSocketDesc;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub use self::tap_interface::TapInterfaceDesc;
 
@@ -36,17 +36,27 @@ pub fn wait(fd: RawFd, duration: Option<Duration>) -> io::Result<()> {
         let mut exceptfds = mem::uninitialized::<libc::fd_set>();
         libc::FD_ZERO(&mut exceptfds);
 
-        let mut timeout = libc::timeval { tv_sec: 0, tv_usec: 0 };
-        let timeout_ptr =
-            if let Some(duration) = duration {
-                timeout.tv_usec = (duration.total_millis() * 1_000) as libc::suseconds_t;
-                &mut timeout as *mut _
-            } else {
-                ptr::null_mut()
-            };
+        let mut timeout = libc::timeval {
+            tv_sec: 0,
+            tv_usec: 0,
+        };
+        let timeout_ptr = if let Some(duration) = duration {
+            timeout.tv_usec = (duration.total_millis() * 1_000) as libc::suseconds_t;
+            &mut timeout as *mut _
+        } else {
+            ptr::null_mut()
+        };
 
-        let res = libc::select(fd + 1, &mut readfds, &mut writefds, &mut exceptfds, timeout_ptr);
-        if res == -1 { return Err(io::Error::last_os_error()) }
+        let res = libc::select(
+            fd + 1,
+            &mut readfds,
+            &mut writefds,
+            &mut exceptfds,
+            timeout_ptr,
+        );
+        if res == -1 {
+            return Err(io::Error::last_os_error());
+        }
         Ok(())
     }
 }
@@ -56,14 +66,14 @@ pub fn wait(fd: RawFd, duration: Option<Duration>) -> io::Result<()> {
 #[derive(Debug)]
 struct ifreq {
     ifr_name: [libc::c_char; libc::IF_NAMESIZE],
-    ifr_data: libc::c_int /* ifr_ifindex or ifr_mtu */
+    ifr_data: libc::c_int, /* ifr_ifindex or ifr_mtu */
 }
 
 #[cfg(all(any(feature = "phy-tap_interface", feature = "phy-raw_socket"), unix))]
 fn ifreq_for(name: &str) -> ifreq {
     let mut ifreq = ifreq {
         ifr_name: [0; libc::IF_NAMESIZE],
-        ifr_data: 0
+        ifr_data: 0,
     };
     for (i, byte) in name.as_bytes().iter().enumerate() {
         ifreq.ifr_name[i] = *byte as libc::c_char
@@ -71,12 +81,20 @@ fn ifreq_for(name: &str) -> ifreq {
     ifreq
 }
 
-#[cfg(all(target_os = "linux", any(feature = "phy-tap_interface", feature = "phy-raw_socket")))]
-fn ifreq_ioctl(lower: libc::c_int, ifreq: &mut ifreq,
-               cmd: libc::c_ulong) -> io::Result<libc::c_int> {
+#[cfg(all(
+    target_os = "linux",
+    any(feature = "phy-tap_interface", feature = "phy-raw_socket")
+))]
+fn ifreq_ioctl(
+    lower: libc::c_int,
+    ifreq: &mut ifreq,
+    cmd: libc::c_ulong,
+) -> io::Result<libc::c_int> {
     unsafe {
         let res = libc::ioctl(lower, cmd as _, ifreq as *mut ifreq);
-        if res == -1 { return Err(io::Error::last_os_error()) }
+        if res == -1 {
+            return Err(io::Error::last_os_error());
+        }
     }
 
     Ok(ifreq.ifr_data)

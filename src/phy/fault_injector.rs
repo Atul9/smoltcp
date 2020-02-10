@@ -1,8 +1,8 @@
 use core::cell::RefCell;
 
-use {Error, Result};
-use phy::{self, DeviceCapabilities, Device};
+use phy::{self, Device, DeviceCapabilities};
 use time::{Duration, Instant};
+use {Error, Result};
 
 // We use our own RNG to stay compatible with #![no_std].
 // The use of the RNG below has a slight bias, but it doesn't matter.
@@ -21,20 +21,20 @@ const MTU: usize = 1536;
 #[derive(Debug, Default, Clone, Copy)]
 struct Config {
     corrupt_pct: u8,
-    drop_pct:    u8,
+    drop_pct: u8,
     reorder_pct: u8,
-    max_size:    usize,
+    max_size: usize,
     max_tx_rate: u64,
     max_rx_rate: u64,
-    interval:    Duration,
+    interval: Duration,
 }
 
 #[derive(Debug, Clone)]
 struct State {
-    rng_seed:    u32,
+    rng_seed: u32,
     refilled_at: Instant,
-    tx_bucket:   u64,
-    rx_bucket:   u64,
+    tx_bucket: u64,
+    rx_bucket: u64,
 }
 
 impl State {
@@ -46,7 +46,7 @@ impl State {
         let buffer = buffer.as_mut();
         // We introduce a single bitflip, as the most likely, and the hardest to detect, error.
         let index = (xorshift32(&mut self.rng_seed) as usize) % buffer.len();
-        let bit   = 1 << (xorshift32(&mut self.rng_seed) % 8) as u8;
+        let bit = 1 << (xorshift32(&mut self.rng_seed) % 8) as u8;
         buffer[index] ^= bit;
     }
 
@@ -59,7 +59,9 @@ impl State {
     }
 
     fn maybe_transmit(&mut self, config: &Config, timestamp: Instant) -> bool {
-        if config.max_tx_rate == 0 { return true }
+        if config.max_tx_rate == 0 {
+            return true;
+        }
 
         self.refill(config, timestamp);
         if self.tx_bucket > 0 {
@@ -71,7 +73,9 @@ impl State {
     }
 
     fn maybe_receive(&mut self, config: &Config, timestamp: Instant) -> bool {
-        if config.max_rx_rate == 0 { return true }
+        if config.max_rx_rate == 0 {
+            return true;
+        }
 
         self.refill(config, timestamp);
         if self.rx_bucket > 0 {
@@ -90,19 +94,19 @@ impl State {
 /// or hardware limitations (such as a limited number or size of usable network buffers).
 #[derive(Debug)]
 pub struct FaultInjector<D: for<'a> Device<'a>> {
-    inner:      D,
-    state:      RefCell<State>,
-    config:     Config,
+    inner: D,
+    state: RefCell<State>,
+    config: Config,
 }
 
 impl<D: for<'a> Device<'a>> FaultInjector<D> {
     /// Create a fault injector device, using the given random number generator seed.
     pub fn new(inner: D, seed: u32) -> FaultInjector<D> {
         let state = State {
-            rng_seed:    seed,
+            rng_seed: seed,
             refilled_at: Instant::from_millis(0),
-            tx_bucket:   0,
-            rx_bucket:   0,
+            tx_bucket: 0,
+            rx_bucket: 0,
         };
         FaultInjector {
             inner: inner,
@@ -151,7 +155,9 @@ impl<D: for<'a> Device<'a>> FaultInjector<D> {
     /// # Panics
     /// This function panics if the probability is not between 0% and 100%.
     pub fn set_corrupt_chance(&mut self, pct: u8) {
-        if pct > 100 { panic!("percentage out of range") }
+        if pct > 100 {
+            panic!("percentage out of range")
+        }
         self.config.corrupt_pct = pct
     }
 
@@ -160,7 +166,9 @@ impl<D: for<'a> Device<'a>> FaultInjector<D> {
     /// # Panics
     /// This function panics if the probability is not between 0% and 100%.
     pub fn set_drop_chance(&mut self, pct: u8) {
-        if pct > 100 { panic!("percentage out of range") }
+        if pct > 100 {
+            panic!("percentage out of range")
+        }
         self.config.drop_pct = pct
     }
 
@@ -187,7 +195,8 @@ impl<D: for<'a> Device<'a>> FaultInjector<D> {
 }
 
 impl<'a, D> Device<'a> for FaultInjector<D>
-    where D: for<'b> Device<'b>,
+where
+    D: for<'b> Device<'b>,
 {
     type RxToken = RxToken<'a, <D as Device<'a>>::RxToken>;
     type TxToken = TxToken<'a, <D as Device<'a>>::TxToken>;
@@ -201,60 +210,78 @@ impl<'a, D> Device<'a> for FaultInjector<D>
     }
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        let &mut Self { ref mut inner, ref state, config } = self;
+        let &mut Self {
+            ref mut inner,
+            ref state,
+            config,
+        } = self;
         inner.receive().map(|(rx_token, tx_token)| {
             let rx = RxToken {
-                state:   &state,
-                config:  config,
-                token:   rx_token,
+                state: &state,
+                config: config,
+                token: rx_token,
                 corrupt: [0; MTU],
             };
             let tx = TxToken {
-                state:   &state,
-                config:  config,
-                token:   tx_token,
-                junk:    [0; MTU],
+                state: &state,
+                config: config,
+                token: tx_token,
+                junk: [0; MTU],
             };
             (rx, tx)
         })
     }
 
     fn transmit(&'a mut self) -> Option<Self::TxToken> {
-        let &mut Self { ref mut inner, ref state, config } = self;
+        let &mut Self {
+            ref mut inner,
+            ref state,
+            config,
+        } = self;
         inner.transmit().map(|token| TxToken {
-            state:  &state,
+            state: &state,
             config: config,
             token: token,
-            junk:   [0; MTU],
+            junk: [0; MTU],
         })
     }
 }
 
 #[doc(hidden)]
 pub struct RxToken<'a, Rx: phy::RxToken> {
-    state:   &'a RefCell<State>,
-    config:  Config,
-    token:   Rx,
+    state: &'a RefCell<State>,
+    config: Config,
+    token: Rx,
     corrupt: [u8; MTU],
 }
 
 impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
     fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>
+    where
+        F: FnOnce(&mut [u8]) -> Result<R>,
     {
         if self.state.borrow_mut().maybe(self.config.drop_pct) {
             net_trace!("rx: randomly dropping a packet");
-            return Err(Error::Exhausted)
+            return Err(Error::Exhausted);
         }
-        if !self.state.borrow_mut().maybe_receive(&self.config, timestamp) {
+        if !self
+            .state
+            .borrow_mut()
+            .maybe_receive(&self.config, timestamp)
+        {
             net_trace!("rx: dropping a packet because of rate limiting");
-            return Err(Error::Exhausted)
+            return Err(Error::Exhausted);
         }
-        let Self { token, config, state, mut corrupt } = self;
+        let Self {
+            token,
+            config,
+            state,
+            mut corrupt,
+        } = self;
         token.consume(timestamp, |buffer| {
             if config.max_size > 0 && buffer.as_ref().len() > config.max_size {
                 net_trace!("rx: dropping a packet that is too large");
-                return Err(Error::Exhausted)
+                return Err(Error::Exhausted);
             }
             if state.borrow_mut().maybe(config.corrupt_pct) {
                 net_trace!("rx: randomly corrupting a packet");
@@ -271,15 +298,16 @@ impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
 
 #[doc(hidden)]
 pub struct TxToken<'a, Tx: phy::TxToken> {
-    state:  &'a RefCell<State>,
+    state: &'a RefCell<State>,
     config: Config,
-    token:  Tx,
-    junk:   [u8; MTU],
+    token: Tx,
+    junk: [u8; MTU],
 }
 
 impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
     fn consume<R, F>(mut self, timestamp: Instant, len: usize, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>
+    where
+        F: FnOnce(&mut [u8]) -> Result<R>,
     {
         let drop = if self.state.borrow_mut().maybe(self.config.drop_pct) {
             net_trace!("tx: randomly dropping a packet");
@@ -287,7 +315,11 @@ impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
         } else if self.config.max_size > 0 && len > self.config.max_size {
             net_trace!("tx: dropping a packet that is too large");
             true
-        } else if !self.state.borrow_mut().maybe_transmit(&self.config, timestamp) {
+        } else if !self
+            .state
+            .borrow_mut()
+            .maybe_transmit(&self.config, timestamp)
+        {
             net_trace!("tx: dropping a packet because of rate limiting");
             true
         } else {
@@ -298,7 +330,12 @@ impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
             return f(&mut self.junk);
         }
 
-        let Self { token, state, config, .. } = self;
+        let Self {
+            token,
+            state,
+            config,
+            ..
+        } = self;
         token.consume(timestamp, len, |mut buf| {
             if state.borrow_mut().maybe(config.corrupt_pct) {
                 net_trace!("tx: corrupting a packet");

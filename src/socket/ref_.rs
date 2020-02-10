@@ -1,13 +1,16 @@
 use core::ops::{Deref, DerefMut};
 
+#[cfg(all(
+    feature = "socket-icmp",
+    any(feature = "proto-ipv4", feature = "proto-ipv6")
+))]
+use socket::IcmpSocket;
 #[cfg(feature = "socket-raw")]
 use socket::RawSocket;
-#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
-use socket::IcmpSocket;
-#[cfg(feature = "socket-udp")]
-use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
 use socket::TcpSocket;
+#[cfg(feature = "socket-udp")]
+use socket::UdpSocket;
 
 /// A trait for tracking a socket usage session.
 ///
@@ -21,7 +24,10 @@ pub trait Session {
 
 #[cfg(feature = "socket-raw")]
 impl<'a, 'b> Session for RawSocket<'a, 'b> {}
-#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
+#[cfg(all(
+    feature = "socket-icmp",
+    any(feature = "proto-ipv4", feature = "proto-ipv6")
+))]
 impl<'a, 'b> Session for IcmpSocket<'a, 'b> {}
 #[cfg(feature = "socket-udp")]
 impl<'a, 'b> Session for UdpSocket<'a, 'b> {}
@@ -47,7 +53,9 @@ impl<'a, T: Session + 'a> Ref<'a, T> {
     ///
     /// [into_inner]: #method.into_inner
     pub fn new(socket: &'a mut T) -> Self {
-        Ref { socket: Some(socket) }
+        Ref {
+            socket: Some(socket),
+        }
     }
 
     /// Unwrap a smart pointer to a socket.

@@ -3,8 +3,8 @@
 
 use managed::ManagedMap;
 
-use wire::{EthernetAddress, IpAddress};
 use time::{Duration, Instant};
+use wire::{EthernetAddress, IpAddress};
 
 #[cfg(any(feature = "std", feature = "alloc"))]
 use core::mem;
@@ -16,7 +16,7 @@ use core::mem;
 #[derive(Debug, Clone, Copy)]
 pub struct Neighbor {
     hardware_addr: EthernetAddress,
-    expires_at:    Instant,
+    expires_at: Instant,
 }
 
 /// An answer to a neighbor cache lookup.
@@ -28,7 +28,7 @@ pub(crate) enum Answer {
     NotFound,
     /// The neighbor address is not in the cache, or has expired,
     /// and a lookup has been made recently.
-    RateLimited
+    RateLimited,
 }
 
 /// A neighbor cache backed by a map.
@@ -52,10 +52,9 @@ pub(crate) enum Answer {
 /// ```
 #[derive(Debug)]
 pub struct Cache<'a> {
-    storage:      ManagedMap<'a, IpAddress, Neighbor>,
+    storage: ManagedMap<'a, IpAddress, Neighbor>,
     silent_until: Instant,
-    gc_threshold: usize
-
+    gc_threshold: usize,
 }
 
 impl<'a> Cache<'a> {
@@ -73,21 +72,32 @@ impl<'a> Cache<'a> {
     /// # Panics
     /// This function panics if `storage.len() == 0`.
     pub fn new<T>(storage: T) -> Cache<'a>
-            where T: Into<ManagedMap<'a, IpAddress, Neighbor>> {
-
+    where
+        T: Into<ManagedMap<'a, IpAddress, Neighbor>>,
+    {
         Cache::new_with_limit(storage, Cache::GC_THRESHOLD)
     }
 
     pub fn new_with_limit<T>(storage: T, gc_threshold: usize) -> Cache<'a>
-            where T: Into<ManagedMap<'a, IpAddress, Neighbor>> {
+    where
+        T: Into<ManagedMap<'a, IpAddress, Neighbor>>,
+    {
         let mut storage = storage.into();
         storage.clear();
 
-        Cache { storage, gc_threshold, silent_until: Instant::from_millis(0) }
+        Cache {
+            storage,
+            gc_threshold,
+            silent_until: Instant::from_millis(0),
+        }
     }
 
-    pub fn fill(&mut self, protocol_addr: IpAddress, hardware_addr: EthernetAddress,
-                timestamp: Instant) {
+    pub fn fill(
+        &mut self,
+        protocol_addr: IpAddress,
+        hardware_addr: EthernetAddress,
+        timestamp: Instant,
+    ) {
         debug_assert!(protocol_addr.is_unicast());
         debug_assert!(hardware_addr.is_unicast());
 
@@ -95,11 +105,12 @@ impl<'a> Cache<'a> {
         let current_storage_size = self.storage.len();
 
         match self.storage {
-            ManagedMap::Borrowed(_) =>  (),
+            ManagedMap::Borrowed(_) => (),
             #[cfg(any(feature = "std", feature = "alloc"))]
             ManagedMap::Owned(ref mut map) => {
                 if current_storage_size >= self.gc_threshold {
-                    let new_btree_map = map.into_iter()
+                    let new_btree_map = map
+                        .into_iter()
                         .map(|(key, value)| (*key, *value))
                         .filter(|(_, v)| timestamp < v.expires_at)
                         .collect();
@@ -109,13 +120,18 @@ impl<'a> Cache<'a> {
             }
         };
         let neighbor = Neighbor {
-            expires_at: timestamp + Self::ENTRY_LIFETIME, hardware_addr
+            expires_at: timestamp + Self::ENTRY_LIFETIME,
+            hardware_addr,
         };
         match self.storage.insert(protocol_addr, neighbor) {
             Ok(Some(old_neighbor)) => {
                 if old_neighbor.hardware_addr != hardware_addr {
-                    net_trace!("replaced {} => {} (was {})",
-                               protocol_addr, hardware_addr, old_neighbor.hardware_addr);
+                    net_trace!(
+                        "replaced {} => {} (was {})",
+                        protocol_addr,
+                        hardware_addr,
+                        old_neighbor.hardware_addr
+                    );
                 }
             }
             Ok(None) => {
@@ -138,38 +154,46 @@ impl<'a> Cache<'a> {
                     }
                     // Owned maps can extend themselves.
                     #[cfg(any(feature = "std", feature = "alloc"))]
-                    ManagedMap::Owned(_) => unreachable!()
+                    ManagedMap::Owned(_) => unreachable!(),
                 };
 
-                let _old_neighbor =
-                    self.storage.remove(&old_protocol_addr).unwrap();
+                let _old_neighbor = self.storage.remove(&old_protocol_addr).unwrap();
                 match self.storage.insert(protocol_addr, neighbor) {
                     Ok(None) => {
-                        net_trace!("filled {} => {} (evicted {} => {})",
-                                   protocol_addr, hardware_addr,
-                                   old_protocol_addr, _old_neighbor.hardware_addr);
+                        net_trace!(
+                            "filled {} => {} (evicted {} => {})",
+                            protocol_addr,
+                            hardware_addr,
+                            old_protocol_addr,
+                            _old_neighbor.hardware_addr
+                        );
                     }
                     // We've covered everything else above.
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 }
-
             }
         }
     }
 
-    pub(crate) fn lookup_pure(&self, protocol_addr: &IpAddress, timestamp: Instant) ->
-                             Option<EthernetAddress> {
+    pub(crate) fn lookup_pure(
+        &self,
+        protocol_addr: &IpAddress,
+        timestamp: Instant,
+    ) -> Option<EthernetAddress> {
         if protocol_addr.is_broadcast() {
-            return Some(EthernetAddress::BROADCAST)
+            return Some(EthernetAddress::BROADCAST);
         }
 
         match self.storage.get(protocol_addr) {
-            Some(&Neighbor { expires_at, hardware_addr }) => {
+            Some(&Neighbor {
+                expires_at,
+                hardware_addr,
+            }) => {
                 if timestamp < expires_at {
-                    return Some(hardware_addr)
+                    return Some(hardware_addr);
                 }
             }
-            None => ()
+            None => (),
         }
 
         None
@@ -177,10 +201,8 @@ impl<'a> Cache<'a> {
 
     pub(crate) fn lookup(&mut self, protocol_addr: &IpAddress, timestamp: Instant) -> Answer {
         match self.lookup_pure(protocol_addr, timestamp) {
-            Some(hardware_addr) =>
-                Answer::Found(hardware_addr),
-            None if timestamp < self.silent_until =>
-                Answer::RateLimited,
+            Some(hardware_addr) => Answer::Found(hardware_addr),
+            None if timestamp < self.silent_until => Answer::RateLimited,
             None => {
                 self.silent_until = timestamp + Self::SILENT_TIME;
                 Answer::NotFound
@@ -195,7 +217,6 @@ mod test {
     use std::collections::BTreeMap;
     use wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3, MOCK_IP_ADDR_4};
 
-
     const HADDR_A: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 1]);
     const HADDR_B: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 2]);
     const HADDR_C: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 3]);
@@ -206,17 +227,37 @@ mod test {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
 
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)), None);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(0)), None);
+        assert_eq!(
+            cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)),
+            None
+        );
+        assert_eq!(
+            cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(0)),
+            None
+        );
 
         cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(0));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Some(HADDR_A));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(0)), None);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0) + Cache::ENTRY_LIFETIME * 2),
-                   None);
+        assert_eq!(
+            cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)),
+            Some(HADDR_A)
+        );
+        assert_eq!(
+            cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(0)),
+            None
+        );
+        assert_eq!(
+            cache.lookup_pure(
+                &MOCK_IP_ADDR_1,
+                Instant::from_millis(0) + Cache::ENTRY_LIFETIME * 2
+            ),
+            None
+        );
 
         cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(0));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(0)), None);
+        assert_eq!(
+            cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(0)),
+            None
+        );
     }
 
     #[test]
@@ -225,9 +266,17 @@ mod test {
         let mut cache = Cache::new(&mut cache_storage[..]);
 
         cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(0));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Some(HADDR_A));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0) + Cache::ENTRY_LIFETIME * 2),
-                   None);
+        assert_eq!(
+            cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)),
+            Some(HADDR_A)
+        );
+        assert_eq!(
+            cache.lookup_pure(
+                &MOCK_IP_ADDR_1,
+                Instant::from_millis(0) + Cache::ENTRY_LIFETIME * 2
+            ),
+            None
+        );
     }
 
     #[test]
@@ -236,9 +285,15 @@ mod test {
         let mut cache = Cache::new(&mut cache_storage[..]);
 
         cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(0));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Some(HADDR_A));
+        assert_eq!(
+            cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)),
+            Some(HADDR_A)
+        );
         cache.fill(MOCK_IP_ADDR_1, HADDR_B, Instant::from_millis(0));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Some(HADDR_B));
+        assert_eq!(
+            cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)),
+            Some(HADDR_B)
+        );
     }
 
     #[test]
@@ -248,10 +303,20 @@ mod test {
         cache.fill(MOCK_IP_ADDR_2, HADDR_B, Instant::from_millis(50));
         // Adding third item after the expiration of the previous
         // two should garbage collect
-        cache.fill(MOCK_IP_ADDR_3, HADDR_C, Instant::from_millis(50) + Cache::ENTRY_LIFETIME * 2);
+        cache.fill(
+            MOCK_IP_ADDR_3,
+            HADDR_C,
+            Instant::from_millis(50) + Cache::ENTRY_LIFETIME * 2,
+        );
 
         assert_eq!(cache.storage.len(), 1);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_3, Instant::from_millis(50) + Cache::ENTRY_LIFETIME * 2), Some(HADDR_C));
+        assert_eq!(
+            cache.lookup_pure(
+                &MOCK_IP_ADDR_3,
+                Instant::from_millis(50) + Cache::ENTRY_LIFETIME * 2
+            ),
+            Some(HADDR_C)
+        );
     }
 
     #[test]
@@ -262,12 +327,24 @@ mod test {
         cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(100));
         cache.fill(MOCK_IP_ADDR_2, HADDR_B, Instant::from_millis(50));
         cache.fill(MOCK_IP_ADDR_3, HADDR_C, Instant::from_millis(200));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(1000)), Some(HADDR_B));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_4, Instant::from_millis(1000)), None);
+        assert_eq!(
+            cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(1000)),
+            Some(HADDR_B)
+        );
+        assert_eq!(
+            cache.lookup_pure(&MOCK_IP_ADDR_4, Instant::from_millis(1000)),
+            None
+        );
 
         cache.fill(MOCK_IP_ADDR_4, HADDR_D, Instant::from_millis(300));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(1000)), None);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_4, Instant::from_millis(1000)), Some(HADDR_D));
+        assert_eq!(
+            cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(1000)),
+            None
+        );
+        assert_eq!(
+            cache.lookup_pure(&MOCK_IP_ADDR_4, Instant::from_millis(1000)),
+            Some(HADDR_D)
+        );
     }
 
     #[test]
@@ -275,8 +352,17 @@ mod test {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
 
-        assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Answer::NotFound);
-        assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(100)), Answer::RateLimited);
-        assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(2000)), Answer::NotFound);
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(0)),
+            Answer::NotFound
+        );
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(100)),
+            Answer::RateLimited
+        );
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(2000)),
+            Answer::NotFound
+        );
     }
 }

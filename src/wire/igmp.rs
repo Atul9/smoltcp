@@ -1,9 +1,9 @@
-use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
+use core::fmt;
 
-use {Error, Result};
 use super::ip::checksum;
 use time::Duration;
+use {Error, Result};
 
 use wire::Ipv4Address;
 
@@ -199,7 +199,8 @@ impl Repr {
     /// Parse an Internet Group Management Protocol v1/v2 packet and return
     /// a high-level representation.
     pub fn parse<T>(packet: &Packet<&T>) -> Result<Repr>
-        where T: AsRef<[u8]> + ?Sized
+    where
+        T: AsRef<[u8]> + ?Sized,
     {
         // Check if the address is 0.0.0.0 or multicast
         let addr = packet.group_addr();
@@ -223,13 +224,13 @@ impl Repr {
                     version,
                 })
             }
-            Message::MembershipReportV2 => {
-                Ok(Repr::MembershipReport {
-                    group_addr: packet.group_addr(),
-                    version: IgmpVersion::Version2,
-                })
-            }
-            Message::LeaveGroup => Ok(Repr::LeaveGroup { group_addr: packet.group_addr() }),
+            Message::MembershipReportV2 => Ok(Repr::MembershipReport {
+                group_addr: packet.group_addr(),
+                version: IgmpVersion::Version2,
+            }),
+            Message::LeaveGroup => Ok(Repr::LeaveGroup {
+                group_addr: packet.group_addr(),
+            }),
             Message::MembershipReportV1 => {
                 // for backwards compatibility with IGMPv1
                 Ok(Repr::MembershipReport {
@@ -249,20 +250,21 @@ impl Repr {
 
     /// Emit a high-level representation into an Internet Group Management Protocol v2 packet.
     pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
-        where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized
+    where
+        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
     {
         match self {
             &Repr::MembershipQuery {
                 max_resp_time,
                 group_addr,
-                version
+                version,
             } => {
                 packet.set_msg_type(Message::MembershipQuery);
                 match version {
-                    IgmpVersion::Version1 =>
-                        packet.set_max_resp_code(0),
-                    IgmpVersion::Version2 =>
-                        packet.set_max_resp_code(duration_to_max_resp_code(max_resp_time)),
+                    IgmpVersion::Version1 => packet.set_max_resp_code(0),
+                    IgmpVersion::Version2 => {
+                        packet.set_max_resp_code(duration_to_max_resp_code(max_resp_time))
+                    }
                 }
                 packet.set_group_address(group_addr);
             }
@@ -332,22 +334,19 @@ impl<'a> fmt::Display for Repr {
                 max_resp_time,
                 group_addr,
                 version,
-            } => {
-                write!(f,
-                       "IGMP membership query max_resp_time={} group_addr={} version={:?}",
-                       max_resp_time,
-                       group_addr,
-                       version)
-            }
+            } => write!(
+                f,
+                "IGMP membership query max_resp_time={} group_addr={} version={:?}",
+                max_resp_time, group_addr, version
+            ),
             &Repr::MembershipReport {
                 group_addr,
                 version,
-            } => {
-                write!(f,
-                       "IGMP membership report group_addr={} version={:?}",
-                       group_addr,
-                       version)
-            }
+            } => write!(
+                f,
+                "IGMP membership report group_addr={} version={:?}",
+                group_addr, version
+            ),
             &Repr::LeaveGroup { group_addr } => {
                 write!(f, "IGMP leave group group_addr={})", group_addr)
             }
@@ -358,10 +357,11 @@ impl<'a> fmt::Display for Repr {
 use super::pretty_print::{PrettyIndent, PrettyPrint};
 
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
-    fn pretty_print(buffer: &dyn AsRef<[u8]>,
-                    f: &mut fmt::Formatter,
-                    indent: &mut PrettyIndent)
-                    -> fmt::Result {
+    fn pretty_print(
+        buffer: &dyn AsRef<[u8]>,
+        f: &mut fmt::Formatter,
+        indent: &mut PrettyIndent,
+    ) -> fmt::Result {
         match Packet::new_checked(buffer) {
             Err(err) => write!(f, "{}({})\n", indent, err),
             Ok(packet) => write!(f, "{}{}\n", indent, packet),
@@ -373,7 +373,6 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
 mod test {
     use super::*;
 
-
     static LEAVE_PACKET_BYTES: [u8; 8] = [0x17, 0x00, 0x02, 0x69, 0xe0, 0x00, 0x06, 0x96];
     static REPORT_PACKET_BYTES: [u8; 8] = [0x16, 0x00, 0x08, 0xda, 0xe1, 0x00, 0x00, 0x25];
 
@@ -383,8 +382,10 @@ mod test {
         assert_eq!(packet.msg_type(), Message::LeaveGroup);
         assert_eq!(packet.max_resp_code(), 0);
         assert_eq!(packet.checksum(), 0x269);
-        assert_eq!(packet.group_addr(),
-                   Ipv4Address::from_bytes(&[224, 0, 6, 150]));
+        assert_eq!(
+            packet.group_addr(),
+            Ipv4Address::from_bytes(&[224, 0, 6, 150])
+        );
         assert_eq!(packet.verify_checksum(), true);
     }
 
@@ -394,8 +395,10 @@ mod test {
         assert_eq!(packet.msg_type(), Message::MembershipReportV2);
         assert_eq!(packet.max_resp_code(), 0);
         assert_eq!(packet.checksum(), 0x08da);
-        assert_eq!(packet.group_addr(),
-                   Ipv4Address::from_bytes(&[225, 0, 0, 37]));
+        assert_eq!(
+            packet.group_addr(),
+            Ipv4Address::from_bytes(&[225, 0, 0, 37])
+        );
         assert_eq!(packet.verify_checksum(), true);
     }
 
@@ -434,9 +437,7 @@ mod test {
     #[test]
     fn duration_to_max_resp_time_max() {
         for duration in 31744..65536 {
-            let time = duration_to_max_resp_code(
-                Duration::from_millis(duration * 100)
-            );
+            let time = duration_to_max_resp_code(Duration::from_millis(duration * 100));
             assert_eq!(time, 0xFF);
         }
     }
